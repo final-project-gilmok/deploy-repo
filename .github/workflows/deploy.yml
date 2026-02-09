@@ -14,35 +14,70 @@ jobs:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
-          timeout: 40s
+          timeout: 120s # Blue/Green 헬스체크 대기 시간 고려
           script: |
-            # 1. 정보 받기
+            # 1. 정보 받기 & 검증
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_URL="${{ github.event.client_payload.image_url }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
             
-            # 방어 코드
             if [ -z "$SERVICE_NAME" ]; then
-              echo "❌ 서비스 이름이 없습니다! 배포를 중단합니다."
+              echo "❌ Error: Service Name is missing!"
               exit 1
             fi
             
-            echo "🚀 배포 시작: $SERVICE_NAME ($IMAGE_URL:$IMAGE_TAG)"
+            echo "🚀 Start Deploy: $SERVICE_NAME ($IMAGE_URL:$IMAGE_TAG)"
             
             mkdir -p ~/app && cd ~/app
             
-            # 2. docker-compose.yml 생성 (전체 구조 정의)
-            # 주의: 여기서 정의한 image 주소는 각 repo의 workflow 파일과 일치해야 합니다.
+            # 2. docker-compose.yml 생성 (Gateway Blue/Green + Nginx 포함)
+            # 매번 최신 구조로 덮어씌움
             cat <<EOF > docker-compose.yml
             version: '3.8'
             
             services:
-              # [1] API 서버
-              api-server:
-                image: ghcr.io/Final-project-gilmok/api-repo:latest
-                container_name: api-server
+              # [0] Nginx (로드밸런서 & Blue/Green 스위처)
+              nginx:
+                image: nginx:latest
+                container_name: nginx
                 ports:
-                  - "8081:8080" # 외부포트:내부포트 (충돌 방지 위해 8081 권장)
+                  - "80:80"
+                volumes:
+                  - ./nginx/conf.d:/etc/nginx/conf.d
+                restart: always
+                networks:
+                  - msa-network
+
+              # [1] Gateway - Blue
+              gateway-blue:
+                image: ghcr.io/final-project-gilmok/gateway-repo:latest
+                container_name: gateway-blue
+                environment:
+                  - SERVER_PORT=8080
+                  - SPRING_PROFILES_ACTIVE=prod
+                  - API_SERVER_URL=http://api-server:8080
+                  - AUTH_SERVER_URL=http://auth-server:9000
+                networks:
+                  - msa-network
+
+              # [1] Gateway - Green
+              gateway-green:
+                image: ghcr.io/final-project-gilmok/gateway-repo:latest
+                container_name: gateway-green
+                environment:
+                  - SERVER_PORT=8080
+                  - SPRING_PROFILES_ACTIVE=prod
+                  - API_SERVER_URL=http://api-server:8080
+                  - AUTH_SERVER_URL=http://auth-server:9000
+                networks:
+                  - msa-network
+
+              # [2] API 서버 (비즈니스 로직)
+              api-server:
+                image: ghcr.io/final-project-gilmok/api-repo:latest
+                container_name: api-server
+                expose:
+                  - "8080"
                 restart: always
                 environment:
                   - TZ=Asia/Seoul
@@ -50,9 +85,9 @@ jobs:
                 networks:
                   - msa-network
 
-              # [2] 인증 서버 (Auth)
+              # [3] 인증 서버 (Auth)
               auth-server:
-                image: ghcr.io/Final-project-gilmok/auth-repo:latest
+                image: ghcr.io/final-project-gilmok/auth-repo:latest
                 container_name: auth-server
                 ports:
                   - "9000:9000"
@@ -63,22 +98,6 @@ jobs:
                 networks:
                   - msa-network
 
-              # [3] 게이트웨이 서버 (Gateway) - 사용자가 접속하는 입구
-              gateway-server:
-                image: ghcr.io/Final-project-gilmok/gateway-repo:latest
-                container_name: gateway-server
-                ports:
-                  - "80:8000" # 사용자는 80(http)으로 들어와서 8000으로 연결
-                restart: always
-                environment:
-                  - TZ=Asia/Seoul
-                  - SPRING_PROFILES_ACTIVE=prod
-                  # 게이트웨이가 다른 서버 주소를 알기 위한 설정
-                  - API_SERVER_URL=http://api-server:8080
-                  - AUTH_SERVER_URL=http://auth-server:9000
-                networks:
-                  - msa-network
-            
               # [4] Redis (대기열용)
               redis:
                 image: redis:alpine
@@ -88,65 +107,108 @@ jobs:
                 networks:
                   - msa-network
 
-               # [5] MySQL (메인 DB)
+              # [5] MySQL (메인 DB)
               mysql:
                 image: mysql:8.0
                 container_name: mysql-server
                 ports:
                   - "3306:3306"
                 environment:
-                  # [보안] GitHub Actions Secret에서 주입받은 값 사용
                   MYSQL_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
-                  MYSQL_DATABASE: gilmok_db  # 실제 사용할 DB 이름으로 수정!
+                  MYSQL_DATABASE: gilmok_db
                   TZ: Asia/Seoul
                 volumes:
-                  # [데이터 보존] 호스트와 연결 (필수)
                   - ./mysql-data:/var/lib/mysql
-                  # [커스텀 설정] my.cnf 파일을 밖에서 주입해서 설정 제어
-                  - ./mysql-conf:/etc/mysql/conf.d 
+                  - ./mysql-conf:/etc/mysql/conf.d
                   - ./mysql-init:/docker-entrypoint-initdb.d
-            
-                # [설정 최적화 & 제약 조건]
-                # 관리형 DB가 해주던 걸 우리가 직접 설정하는 부분입니다.
                 command: >
                   --character-set-server=utf8mb4 
                   --collation-server=utf8mb4_unicode_ci 
                   --default-time-zone='+09:00'
                   --max_connections=150
                   --innodb_buffer_pool_size=512M 
-                  --lower_case_table_names=1
-            
-                # [리소스 제한] (오라클 무료티어 터짐 방지 🚨)
-                # 컨테이너 하나가 메모리를 다 먹어서 서버가 뻗는 걸 막습니다.
                 deploy:
                   resources:
                     limits:
-                      memory: 1G  # 최대 1GB까지만 사용 (전체 24GB 중 일부 할당)
-            
+                      memory: 1G
                 networks:
                   - msa-network
-            
-            # 모든 컨테이너가 공유할 네트워크 생성
+
             networks:
               msa-network:
                 driver: bridge
             EOF
             
-            # 3. 해당 서비스만 배포 진행
-            # 명령어 호환성 체크 (docker-compose vs docker compose)
+            # 명령어 호환성 처리
             if command -v docker-compose &> /dev/null; then
-                CMD="docker-compose"
+                DOCKER_COMPOSE="docker-compose"
             else
-                CMD="docker compose"
+                DOCKER_COMPOSE="docker compose"
+            fi
+
+            # 3. 배포 로직 분기 (Gateway vs Others)
+            if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
+                echo "🔵 Gateway Service Detected -> Starting Blue/Green Deployment..."
+            
+                # (1) 현재 실행 중인 컨테이너 확인 (Blue가 켜져 있으면 Green 배포, 반대면 Blue 배포)
+                CURRENT_COLOR="blue"
+                if [ $(sudo docker ps --format '{{.Names}}' | grep -w "gateway-blue") ]; then
+                    CURRENT_COLOR="blue"
+                    TARGET_COLOR="green"
+                else
+                    CURRENT_COLOR="green"
+                    TARGET_COLOR="blue"
+                fi
+            
+                echo "Current Active: $CURRENT_COLOR / Target to Deploy: $TARGET_COLOR"
+            
+                # (2) 새 버전 이미지 Pull & Target 컨테이너 시작
+                sudo $DOCKER_COMPOSE pull gateway-$TARGET_COLOR
+                sudo $DOCKER_COMPOSE up -d gateway-$TARGET_COLOR
+            
+                # (3) Health Check (간단히 10초 대기, 실제론 curl로 200 OK 확인 권장)
+                echo "Waiting for Health Check..."
+                sleep 15
+            
+                # (4) Nginx 설정 변경 (동적 Reload)
+                # 여기선 간단히 Nginx 컨테이너 재시작으로 처리하거나, 
+                # 미리 준비된 nginx.conf 템플릿을 교체하고 reload 하는 방식 사용
+                # MVP 단계에선 가장 쉬운 방법: Target만 남기고 다 끄면 Nginx가 알아서 붙음 (단, Nginx 설정이 upstream 잡혀있어야 함)
+                # 정석: Nginx 설정 파일 sed로 수정 후 reload
+            
+                echo "Switching Traffic to $TARGET_COLOR..."
+            
+                # Nginx 설정 파일 생성 (Target을 가리키도록)
+                cat <<NGINX_CONF > ./nginx/conf.d/default.conf
+                upstream gateway_backend {
+                    server gateway-$TARGET_COLOR:8080;
+                }
+                server {
+                    listen 80;
+                    location / {
+                        proxy_pass http://gateway_backend;
+                        proxy_set_header Host \$host;
+                        proxy_set_header X-Real-IP \$remote_addr;
+                    }
+                }
+                NGINX_CONF
+            
+                # Nginx 설정 적용
+                sudo $DOCKER_COMPOSE restart nginx
+            
+                # (5) 이전 버전(Current) 중지
+                echo "Stopping Old Version ($CURRENT_COLOR)..."
+                sudo $DOCKER_COMPOSE stop gateway-$CURRENT_COLOR
+            
+                echo "✅ Gateway Blue/Green Deployment Complete!"
+            
+            else
+                # 4. 일반 서비스 배포 (API, Auth 등)
+                echo "🟢 Standard Deployment for $SERVICE_NAME..."
+                sudo $DOCKER_COMPOSE pull $SERVICE_NAME
+                sudo $DOCKER_COMPOSE up -d $SERVICE_NAME --remove-orphans
             fi
             
-            # 최신 이미지 다운로드 (해당 서비스만)
-            sudo $CMD pull $SERVICE_NAME
-            
-            # 컨테이너 재시작 (해당 서비스만)
-            sudo $CMD up -d $SERVICE_NAME --remove-orphans
-            
-            # 4. 안 쓰는 이미지 정리
+            # 5. 청소
             sudo docker image prune -f
-            
-            echo "✅ $SERVICE_NAME 배포 완료!"
+            echo "✨ All Done!"
