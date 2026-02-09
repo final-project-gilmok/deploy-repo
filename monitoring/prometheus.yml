@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['prometheus:9090']
+
+  - job_name: 'node-exporter'  # 서버 CPU/RAM
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: 'cadvisor'       # 컨테이너별 사용량
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # [중요] 스프링 부트 앱 모니터링 (배포된 앱 연결)
+  # 호스트 IP나 도커 네트워크 주소를 통해 연결 (나중에 IP 수정 필요할 수 있음)
+  - job_name: 'spring-actuator'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['host.docker.internal:8081', 'host.docker.internal:8082', 'host.docker.internal:9000']

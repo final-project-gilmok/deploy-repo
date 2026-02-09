@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # [1] Prometheus: 메트릭 수집기
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus  # 데이터 영구 저장
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d' # 15일치 보관
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring-net
+    restart: always
+
+  # [2] Grafana: 시각화 대시보드
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    volumes:
+      - grafana-data:/var/lib/grafana # 설정/대시보드 영구 저장
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # 초기 비번 (로그인 후 변경 권장)
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - monitoring-net
+    restart: always
+    depends_on:
+      - prometheus
+
+  # [3] cAdvisor: 컨테이너 리소스 감시 (CPU/RAM 사용량)
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - monitoring-net
+    restart: always
+    privileged: true
+    devices:
+      - /dev/kmsg
+
+  # [4] Node Exporter: 호스트(VM) 서버 리소스 감시
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring-net
+    restart: always
+
+networks:
+  monitoring-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
