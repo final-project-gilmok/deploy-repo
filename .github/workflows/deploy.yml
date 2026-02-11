@@ -247,7 +247,7 @@ jobs:
             
                 echo "Switching Traffic to $TARGET_COLOR..."
                 # [수정] NGINX 설정도 따옴표 처리하여 안전하게 생성 (변수 앞 \ 제거)
-                cat <<'NGINX_CONF' > ./nginx/conf.d/default.conf
+                cat <<NGINX_CONF > ./nginx/conf.d/default.conf
                 upstream gateway_backend {
                     server gateway-$TARGET_COLOR:8080;
                 }
@@ -255,9 +255,9 @@ jobs:
                     listen 80;
                     location / {
                         proxy_pass http://gateway_backend;
-                        proxy_set_header Host $host;
-                        proxy_set_header X-Real-IP $remote_addr;
-                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header Host \$host;
+                        proxy_set_header X-Real-IP \$remote_addr;
+                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                     }
                 }
                 NGINX_CONF
