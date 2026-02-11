@@ -74,9 +74,9 @@ jobs:
                     echo "✅ Using PROD monitoring config..."
                     # GRAFANA_PASSWORD를 넘겨주면서 실행
                     if command -v docker-compose &> /dev/null; then
-                        GRAFANA_PASSWORD=$GRAFANA_PASSWORD docker-compose -f docker-compose.monitoring.prod.yml up -d
+                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker-compose -f docker-compose.monitoring.prod.yml up -d
                     else
-                        GRAFANA_PASSWORD=$GRAFANA_PASSWORD docker compose -f docker-compose.monitoring.prod.yml up -d
+                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker compose -f docker-compose.monitoring.prod.yml up -d
                     fi
                 elif [ -f "docker-compose.monitoring.yml" ]; then
                     echo "⚠️ Using LOCAL monitoring config (Not Recommended for Prod)..."
