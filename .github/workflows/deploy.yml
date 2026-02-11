@@ -30,7 +30,13 @@ jobs:
                echo "❌ Error: Invalid Image Tag"
                exit 1
             fi
-
+            
+            # [추가] 이미지 URL 검증 (도메인, 경로, 하이픈, 언더바, 점, 콜론, 슬래시 허용)
+            if [[ ! "$IMAGE_URL" =~ ^[a-zA-Z0-9._:/-]+$ ]]; then
+               echo "❌ Error: Invalid Image URL"
+               exit 1
+            fi
+            
             echo "🚀 Start Deploy: $SERVICE_NAME ($IMAGE_URL:$IMAGE_TAG)"
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
