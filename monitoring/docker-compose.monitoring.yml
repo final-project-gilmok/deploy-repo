@@ -100,6 +100,22 @@ services:
       - monitoring-net
     restart: always
 
+  # [7] Tempo (Distributed Tracing) - NEW!
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: tempo
+    command: [ "-config.file=/etc/tempo.yml" ]
+    volumes:
+      - ./tempo-config.yml:/etc/tempo.yml
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "9411:9411"
+    networks:
+      - monitoring-net
+    restart: always
+
 networks:
   monitoring-net:
     driver: bridge
@@ -107,3 +123,4 @@ networks:
 volumes:
   prometheus-data:
   grafana-data:
+  tempo-data: # [추가]
