@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['prometheus:9090']
+
+  - job_name: 'node-exporter'  # 서버 CPU/RAM
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: 'cadvisor'       # 컨테이너별 사용량
+    static_configs:
+      # cAdvisor는 이미 위에서 정의된 8082 포트를 사용
+      - targets: ['host.docker.internal:8082']
+
+  # [중요] 스프링 부트 앱 모니터링
+  - job_name: 'spring-actuator'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 5s
+    static_configs:
+      # [수정] 8082(cAdvisor) 제거. 스프링 앱만 남김.
+      - targets: ['host.docker.internal:8080', 'host.docker.internal:8081', 'host.docker.internal:9000']
