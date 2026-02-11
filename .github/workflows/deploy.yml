@@ -8,28 +8,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # 1. 체크아웃 (현재 레포지토리의 monitoring 폴더 등을 가져오기 위해 필수)
+      # 1. 체크아웃
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 2. [추가] 모니터링 설정 파일들을 OCI 서버로 전송
+      # 2. 모니터링 설정 파일 전송
       - name: Copy Monitoring Configs to Server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
-          source: "monitoring/" # 로컬의 monitoring 폴더 통째로 전송
-          target: "~/app"       # 서버의 ~/app/monitoring으로 복사됨
+          source: "monitoring/"
+          target: "~/app"
 
       # 3. SSH 접속 및 배포
       - name: SSH Remote Commands
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          # [중요] 그라파나 비밀번호 환경변수 주입 (SSH 스크립트 내에서 사용 가능)
+          GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 180s
+          # env에서 정의한 변수를 스크립트로 전달
+          envs: GRAFANA_PASSWORD
           script: |
             # --- [0] 입력값 검증 ---
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
@@ -42,7 +47,7 @@ jobs:
               exit 1
             fi
             
-            # [추가] 이미지 URL 검증 (보안 강화)
+            # [보안] 이미지 URL 검증
             if [[ ! "$IMAGE_URL" =~ ^[a-zA-Z0-9._:/-]+$ ]]; then
                echo "❌ Error: Invalid Image URL"
                exit 1
@@ -64,15 +69,15 @@ jobs:
             if [ -d "./monitoring" ]; then
                 cd monitoring
             
-                # [수정] 운영용 컴포즈 파일 우선 실행
+                # [수정] 운영용 컴포즈 파일 우선 실행 (환경변수 주입)
                 if [ -f "docker-compose.monitoring.prod.yml" ]; then
                     echo "✅ Using PROD monitoring config..."
+                    # GRAFANA_PASSWORD를 넘겨주면서 실행
                     if command -v docker-compose &> /dev/null; then
-                        docker-compose -f docker-compose.monitoring.prod.yml up -d
+                        GRAFANA_PASSWORD=$GRAFANA_PASSWORD docker-compose -f docker-compose.monitoring.prod.yml up -d
                     else
-                        docker compose -f docker-compose.monitoring.prod.yml up -d
+                        GRAFANA_PASSWORD=$GRAFANA_PASSWORD docker compose -f docker-compose.monitoring.prod.yml up -d
                     fi
-                # 운영용 파일 없으면 기존 로컬용 실행 (혹시 몰라서)
                 elif [ -f "docker-compose.monitoring.yml" ]; then
                     echo "⚠️ Using LOCAL monitoring config (Not Recommended for Prod)..."
                     if command -v docker-compose &> /dev/null; then
@@ -87,13 +92,14 @@ jobs:
             fi
 
             # --- [2] 메인 서비스 docker-compose.yml 생성 ---
+            # 주의: 로컬 MySQL/Redis 컨테이너 제거됨 (Aiven Cloud 사용)
             cat <<EOF > docker-compose.yml
             version: '3.8'
             
             services:
-              # [0] Nginx
+              # [0] Nginx (버전 고정)
               nginx:
-                image: nginx:latest
+                image: nginx:1.25.4-alpine
                 container_name: nginx
                 ports:
                   - "80:80"
@@ -112,6 +118,15 @@ jobs:
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
+                  # [DB 연결]
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  # [Redis 연결]
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
                 extra_hosts: 
                   - "host.docker.internal:host-gateway"
                 networks:
@@ -131,6 +146,15 @@ jobs:
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
+                  # [DB 연결]
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  # [Redis 연결]
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
                 extra_hosts:
                   - "host.docker.internal:host-gateway"
                 networks:
@@ -151,6 +175,15 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
+                  # [DB 연결]
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  # [Redis 연결]
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
 
@@ -164,42 +197,15 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
-                networks:
-                  - msa-network
-
-              # [4] Redis
-              redis:
-                image: redis:alpine
-                container_name: redis-server
-                expose:
-                  - "6379"
-                networks:
-                  - msa-network
-
-              # [5] MySQL
-              mysql:
-                image: mysql:8.0
-                container_name: mysql-server
-                expose:
-                  - "3306"
-                environment:
-                  MYSQL_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
-                  MYSQL_DATABASE: gilmok_db
-                  TZ: Asia/Seoul
-                volumes:
-                  - ./mysql-data:/var/lib/mysql
-                  - ./mysql-conf:/etc/mysql/conf.d
-                  - ./mysql-init:/docker-entrypoint-initdb.d
-                command: >
-                  --character-set-server=utf8mb4 
-                  --collation-server=utf8mb4_unicode_ci 
-                  --default-time-zone='+09:00'
-                  --max_connections=150
-                  --innodb_buffer_pool_size=512M 
-                deploy:
-                  resources:
-                    limits:
-                      memory: 1G
+                  # [DB 연결]
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  # [Redis 연결]
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
 
