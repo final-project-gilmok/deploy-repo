@@ -12,12 +12,13 @@ scrape_configs:
 
   - job_name: 'cadvisor'       # 컨테이너별 사용량
     static_configs:
-      - targets: ['cadvisor:8080']
+      # cAdvisor는 이미 위에서 정의된 8082 포트를 사용
+      - targets: ['host.docker.internal:8082']
 
-  # [중요] 스프링 부트 앱 모니터링 (배포된 앱 연결)
-  # 호스트 IP나 도커 네트워크 주소를 통해 연결 (나중에 IP 수정 필요할 수 있음)
+  # [중요] 스프링 부트 앱 모니터링
   - job_name: 'spring-actuator'
     metrics_path: '/actuator/prometheus'
     scrape_interval: 5s
     static_configs:
-      - targets: ['host.docker.internal:8080','host.docker.internal:8081', 'host.docker.internal:8082', 'host.docker.internal:9000']
+      # [수정] 8082(cAdvisor) 제거. 스프링 앱만 남김.
+      - targets: ['host.docker.internal:8080', 'host.docker.internal:8081', 'host.docker.internal:9000']
