@@ -1,26 +1,23 @@
 version: '3.8'
 
 services:
-  # [1] Prometheus: 메트릭 수집기
+  # [1] Prometheus
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.prod.yml:/etc/prometheus/prometheus.yml # 운영용 설정 파일 마운트
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=15d'
-    # [수정] Linux 환경에서 host.docker.internal 인식을 위해 필수
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     ports:
       - "9090:9090"
     networks:
-      - monitoring-net
+      - msa-network # [중요] 배포된 앱들과 같은 네트워크 사용
     restart: always
 
-  # [2] Grafana: 시각화 대시보드
+  # [2] Grafana
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -29,21 +26,20 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # [수정] 환경변수 사용 (없으면 기본값 admin)
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
     depends_on:
       - prometheus
 
-  # [3] cAdvisor: 컨테이너 리소스 감시
+  # [3] cAdvisor
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
     ports:
-      - "8082:8080" # 호스트의 8082 포트를 사용 (내부 8080)
+      - "8082:8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
@@ -51,13 +47,13 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
     privileged: true
     devices:
       - /dev/kmsg
 
-  # [4] Node Exporter: 호스트 리소스 감시
+  # [4] Node Exporter
   node-exporter:
     image: prom/node-exporter:latest
     container_name: node-exporter
@@ -72,37 +68,37 @@ services:
     ports:
       - "9100:9100"
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
 
-  # [NEW] 로그 저장소
+  # [5] Loki
   loki:
     image: grafana/loki:2.9.0
     container_name: loki
     ports:
       - "3100:3100"
     volumes:
-      - ./loki-config.yml:/etc/loki/local-config.yml
-    command: -config.file=/etc/loki/local-config.yml
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
 
-  # [NEW] 로그 수집기
+  # [6] Promtail
   promtail:
     image: grafana/promtail:2.9.0
     container_name: promtail
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # 도커 데몬 접근 권한
-      - ./promtail-config.yml:/etc/promtail/config.yml
-    command: -config.file=/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yaml:/etc/promtail/config.yaml
+    command: -config.file=/etc/promtail/config.yaml
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
 
 networks:
-  monitoring-net:
-    driver: bridge
+  msa-network:
+    external: true # [중요] 배포 스크립트에서 만든 네트워크를 가져다 씀
 
 volumes:
   prometheus-data:
