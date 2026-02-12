@@ -115,31 +115,6 @@ services:
       - monitoring-net
     restart: always
 
-  # [NEW] 로그 저장소
-  loki:
-    image: grafana/loki:2.9.0
-    container_name: loki
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./loki-config.yml:/etc/loki/local-config.yml
-    command: -config.file=/etc/loki/local-config.yml
-    networks:
-      - monitoring-net
-    restart: always
-
-  # [NEW] 로그 수집기
-  promtail:
-    image: grafana/promtail:2.9.0
-    container_name: promtail
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # 도커 데몬 접근 권한
-      - ./promtail-config.yml:/etc/promtail/config.yml
-    command: -config.file=/etc/promtail/config.yml
-    networks:
-      - monitoring-net
-    restart: always
-
 networks:
   monitoring-net:
     driver: bridge
