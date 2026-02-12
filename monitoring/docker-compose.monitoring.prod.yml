@@ -1,49 +1,46 @@
 version: '3.8'
 
 services:
-  # [1] Prometheus: 메트릭 수집기
+  # [1] Prometheus: 메트릭 수집기 (버전 고정)
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.50.1
     container_name: prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.prod.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=15d'
-    # [수정] Linux 환경에서 host.docker.internal 인식을 위해 필수
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     ports:
       - "9090:9090"
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
 
-  # [2] Grafana: 시각화 대시보드
+  # [2] Grafana: 시각화 대시보드 (버전 고정)
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.3.3
     container_name: grafana
     volumes:
       - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
     environment:
-      # [수정] 환경변수 사용 (없으면 기본값 admin)
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      # [보안] GitHub Secrets에서 주입된 GRAFANA_PASSWORD 사용 (없으면 에러 발생)
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?error_password_missing}
       - GF_USERS_ALLOW_SIGN_UP=false
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
     depends_on:
       - prometheus
 
-  # [3] cAdvisor: 컨테이너 리소스 감시
+  # [3] cAdvisor: 컨테이너 리소스 감시 (신규 레지스트리 및 버전 고정)
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
+    image: ghcr.io/google/cadvisor:v0.47.0
     container_name: cadvisor
     ports:
-      - "8082:8080" # 호스트의 8082 포트를 사용 (내부 8080)
+      - "8082:8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
@@ -51,15 +48,15 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
     privileged: true
     devices:
       - /dev/kmsg
 
-  # [4] Node Exporter: 호스트 리소스 감시
+  # [4] Node Exporter: 호스트 리소스 감시 (버전 고정)
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.7.0
     container_name: node-exporter
     volumes:
       - /proc:/host/proc:ro
@@ -72,37 +69,39 @@ services:
     ports:
       - "9100:9100"
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
 
-  # [NEW] 로그 저장소
+  # [5] Loki (2.9.0)
   loki:
     image: grafana/loki:2.9.0
     container_name: loki
     ports:
       - "3100:3100"
     volumes:
+      # [중요] 실제 파일명(.yml)과 일치해야 함
       - ./loki-config.yml:/etc/loki/local-config.yml
     command: -config.file=/etc/loki/local-config.yml
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
 
-  # [NEW] 로그 수집기
+  # [6] Promtail (2.9.0)
   promtail:
     image: grafana/promtail:2.9.0
     container_name: promtail
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # 도커 데몬 접근 권한
+      - /var/run/docker.sock:/var/run/docker.sock
+      # [중요] 실제 파일명(.yml)과 일치해야 함
       - ./promtail-config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     networks:
-      - monitoring-net
+      - msa-network
     restart: always
 
 networks:
-  monitoring-net:
-    driver: bridge
+  msa-network:
+    external: true
 
 volumes:
   prometheus-data:

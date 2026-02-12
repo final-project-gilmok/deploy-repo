@@ -8,15 +8,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # 1. 체크아웃
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      # 2. 모니터링 설정 파일 전송
+      - name: Copy Monitoring Configs to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME }}
+          key: ${{ secrets.OCI_KEY }}
+          source: "monitoring/"
+          target: "~/app"
+
+      # 3. SSH 접속 및 배포
       - name: SSH Remote Commands
-        uses: appleboy/ssh-action@v1.0.3 # [수정] 버전 고정 (보안)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 180s
+          envs: GRAFANA_PASSWORD
           script: |
-            # 1. 입력값 검증
+            # --- [0] 입력값 검증 ---
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_URL="${{ github.event.client_payload.image_url }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
@@ -26,30 +44,54 @@ jobs:
               exit 1
             fi
             
-            if [[ ! "$IMAGE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-               echo "❌ Error: Invalid Image Tag"
-               exit 1
-            fi
-            
-            # [추가] 이미지 URL 검증 (도메인, 경로, 하이픈, 언더바, 점, 콜론, 슬래시 허용)
             if [[ ! "$IMAGE_URL" =~ ^[a-zA-Z0-9._:/-]+$ ]]; then
                echo "❌ Error: Invalid Image URL"
                exit 1
             fi
             
+            if [[ ! "$IMAGE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+               echo "❌ Error: Invalid Image Tag"
+               exit 1
+            fi
+
             echo "🚀 Start Deploy: $SERVICE_NAME ($IMAGE_URL:$IMAGE_TAG)"
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
-            # 2. docker-compose.yml 생성
-            # [수정] Linux에서 host.docker.internal 사용을 위한 extra_hosts 추가
-            cat <<EOF > docker-compose.yml
+            # --- [1] 모니터링 시스템 실행 ---
+            echo "📊 Starting Monitoring System..."
+            if [ -d "./monitoring" ]; then
+                cd monitoring
+            
+                if [ -f "docker-compose.monitoring.prod.yml" ]; then
+                    echo "✅ Using PROD monitoring config..."
+                    if command -v docker-compose &> /dev/null; then
+                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker-compose -f docker-compose.monitoring.prod.yml up -d
+                    else
+                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker compose -f docker-compose.monitoring.prod.yml up -d
+                    fi
+                elif [ -f "docker-compose.monitoring.yml" ]; then
+                    echo "⚠️ Using LOCAL monitoring config (Not Recommended for Prod)..."
+                    if command -v docker-compose &> /dev/null; then
+                        docker-compose -f docker-compose.monitoring.yml up -d
+                    else
+                        docker compose -f docker-compose.monitoring.yml up -d
+                    fi
+                fi
+                cd ..
+            else
+                echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
+            fi
+
+            # --- [2] 메인 서비스 docker-compose.yml 생성 ---
+            # [수정] 'EOF'를 사용하여 쉘 확장 방지 (비밀번호 내 특수문자 보호)
+            cat <<'EOF' > docker-compose.yml
             version: '3.8'
             
             services:
               # [0] Nginx
               nginx:
-                image: nginx:latest
+                image: nginx:1.25.4-alpine
                 container_name: nginx
                 ports:
                   - "80:80"
@@ -61,14 +103,22 @@ jobs:
 
               # [1] Gateway - Blue
               gateway-blue:
-                image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
+                # [수정] 따옴표 사용으로 인해 \${...} 대신 ${...} 그대로 사용
+                image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}
                 container_name: gateway-blue
                 environment:
                   - SERVER_PORT=8080
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
-                extra_hosts: # Prometheus가 호스트를 찾을 수 있게 추가
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
+                extra_hosts: 
                   - "host.docker.internal:host-gateway"
                 networks:
                   - msa-network
@@ -80,14 +130,21 @@ jobs:
 
               # [1] Gateway - Green
               gateway-green:
-                image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
+                image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}
                 container_name: gateway-green
                 environment:
                   - SERVER_PORT=8080
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
-                extra_hosts: # Prometheus가 호스트를 찾을 수 있게 추가
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
+                extra_hosts:
                   - "host.docker.internal:host-gateway"
                 networks:
                   - msa-network
@@ -107,6 +164,13 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
 
@@ -120,42 +184,13 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
-                networks:
-                  - msa-network
-
-              # [4] Redis
-              redis:
-                image: redis:alpine
-                container_name: redis-server
-                expose:
-                  - "6379"
-                networks:
-                  - msa-network
-
-              # [5] MySQL
-              mysql:
-                image: mysql:8.0
-                container_name: mysql-server
-                expose:
-                  - "3306"
-                environment:
-                  MYSQL_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
-                  MYSQL_DATABASE: gilmok_db
-                  TZ: Asia/Seoul
-                volumes:
-                  - ./mysql-data:/var/lib/mysql
-                  - ./mysql-conf:/etc/mysql/conf.d
-                  - ./mysql-init:/docker-entrypoint-initdb.d
-                command: >
-                  --character-set-server=utf8mb4 
-                  --collation-server=utf8mb4_unicode_ci 
-                  --default-time-zone='+09:00'
-                  --max_connections=150
-                  --innodb_buffer_pool_size=512M 
-                deploy:
-                  resources:
-                    limits:
-                      memory: 1G
+                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
+                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
+                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
 
@@ -171,17 +206,17 @@ jobs:
                 echo "GATEWAY_TAG=latest" > .env
             fi
             
+            # docker-compose 명령어 호환성 체크
             if command -v docker-compose &> /dev/null; then
                 DOCKER_COMPOSE="docker-compose"
             else
                 DOCKER_COMPOSE="docker compose"
             fi
 
-            # 3. 배포 로직 분기
+            # --- [3] 배포 로직 분기 ---
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
                 echo "🔵 Gateway Service Detected -> Starting Blue/Green Deployment..."
             
-                # (1) 현재 활성 컬러 확인 [수정: grep -q 사용]
                 if sudo docker ps --format '{{.Names}}' | grep -q "gateway-blue"; then
                     CURRENT_COLOR="blue"
                     TARGET_COLOR="green"
@@ -191,14 +226,11 @@ jobs:
                 fi
                 echo "Current: $CURRENT_COLOR / Target: $TARGET_COLOR"
             
-                # (2) Target 배포 시작
                 sudo $DOCKER_COMPOSE pull gateway-$TARGET_COLOR
                 sudo $DOCKER_COMPOSE up -d gateway-$TARGET_COLOR
             
-                # (3) Real Health Check
                 echo "Waiting for Health Check..."
                 for i in {1..12}; do
-                    # [수정] 컨테이너 내부 헬스체크 상태 확인 (포트 미노출 대응)
                     if [ "$(sudo docker inspect --format='{{.State.Health.Status}}' gateway-$TARGET_COLOR)" == "healthy" ]; then
                         echo "✅ Health Check Passed!"
                         break
@@ -213,8 +245,8 @@ jobs:
                     sleep 5
                 done
             
-                # (4) Nginx 트래픽 전환
                 echo "Switching Traffic to $TARGET_COLOR..."
+                # [수정] NGINX 설정도 따옴표 처리하여 안전하게 생성 (변수 앞 \ 제거)
                 cat <<NGINX_CONF > ./nginx/conf.d/default.conf
                 upstream gateway_backend {
                     server gateway-$TARGET_COLOR:8080;
@@ -230,14 +262,12 @@ jobs:
                 }
                 NGINX_CONF
             
-                # Nginx Reload [수정: grep -q 사용]
                 if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
                     sudo docker exec nginx nginx -s reload
                 else
                     sudo $DOCKER_COMPOSE up -d nginx
                 fi
             
-                # (5) 이전 버전 중지
                 echo "Stopping Old Version ($CURRENT_COLOR)..."
                 sudo $DOCKER_COMPOSE stop gateway-$CURRENT_COLOR
             
