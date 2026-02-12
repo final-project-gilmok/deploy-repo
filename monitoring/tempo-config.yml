@@ -25,10 +25,7 @@ compactor:
 storage:
   trace:
     backend: local                     # 로컬 파일시스템 사용
-    block:
-      bloom_filter_false_positive: .05
-      index_downsample_bytes: 1000
-      encoding: zstd
+    # block 섹션 전체 삭제 (오류 원인)
     wal:
       path: /tmp/tempo/wal             # 임시 데이터 경로
     local:
