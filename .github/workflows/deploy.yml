@@ -27,12 +27,15 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
+          # ⭐️ Github Secrets에서 FRONTEND_URL 값을 가져옵니다.
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 180s
-          envs: GRAFANA_PASSWORD
+          # ⭐️ 쉘 스크립트(script) 내부에서 사용할 수 있도록 변수명을 등록합니다.
+          envs: GRAFANA_PASSWORD,FRONTEND_URL
           script: |
             # --- [0] 입력값 검증 ---
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
@@ -84,7 +87,6 @@ jobs:
             fi
 
             # --- [2] 메인 서비스 docker-compose.yml 생성 ---
-            # [수정] 'EOF'를 사용하여 쉘 확장 방지 (비밀번호 내 특수문자 보호)
             cat <<'EOF' > docker-compose.yml
             version: '3.8'
             
@@ -103,7 +105,6 @@ jobs:
 
               # [1] Gateway - Blue
               gateway-blue:
-                # [수정] 따옴표 사용으로 인해 \${...} 대신 ${...} 그대로 사용
                 image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}
                 container_name: gateway-blue
                 environment:
@@ -111,6 +112,8 @@ jobs:
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
+                  # ⭐️ 게이트웨이에 프론트엔드 URL 주입
+                  - FRONTEND_URL=${FRONTEND_URL}
                   - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
                   - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
                   - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
@@ -137,6 +140,8 @@ jobs:
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
+                  # ⭐️ 게이트웨이에 프론트엔드 URL 주입
+                  - FRONTEND_URL=${FRONTEND_URL}
                   - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
                   - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
                   - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
@@ -199,12 +204,15 @@ jobs:
                 driver: bridge
             EOF
 
-            # .env 생성
+            # .env 생성 (메인 docker-compose가 읽을 파일)
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
                 echo "GATEWAY_TAG=$IMAGE_TAG" > .env
             else
                 echo "GATEWAY_TAG=latest" > .env
             fi
+            
+            # ⭐️ .env 파일에 FRONTEND_URL 값 추가
+            echo "FRONTEND_URL=$FRONTEND_URL" >> .env
             
             # docker-compose 명령어 호환성 체크
             if command -v docker-compose &> /dev/null; then
@@ -246,7 +254,6 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
-                # [수정] NGINX 설정도 따옴표 처리하여 안전하게 생성 (변수 앞 \ 제거)
                 cat <<NGINX_CONF > ./nginx/conf.d/default.conf
                 upstream gateway_backend {
                     server gateway-$TARGET_COLOR:8080;

@@ -29,6 +29,8 @@ services:
       # [보안] GitHub Secrets에서 주입된 GRAFANA_PASSWORD 사용 (없으면 에러 발생)
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?error_password_missing}
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
     networks:
       - msa-network
     restart: always
