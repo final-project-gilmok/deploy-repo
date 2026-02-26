@@ -254,14 +254,26 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
+                # ⭐️ [핵심 변경] Nginx 설정 파일에 Grafana 라우팅(리버스 프록시) 추가
                 cat <<NGINX_CONF > ./nginx/conf.d/default.conf
                 upstream gateway_backend {
                     server gateway-$TARGET_COLOR:8080;
                 }
+            
                 server {
                     listen 80;
+            
+                    # 1. 메인 API 라우팅 (Gateway로 토스)
                     location / {
                         proxy_pass http://gateway_backend;
+                        proxy_set_header Host \$host;
+                        proxy_set_header X-Real-IP \$remote_addr;
+                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    }
+            
+                    # 2. 그라파나 대시보드 라우팅 (컨테이너 3000포트로 토스)
+                    location /grafana/ {
+                        proxy_pass http://grafana:3000/;
                         proxy_set_header Host \$host;
                         proxy_set_header X-Real-IP \$remote_addr;
                         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
