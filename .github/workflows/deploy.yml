@@ -22,15 +22,23 @@ jobs:
 
       - name: SSH Remote Commands
         uses: appleboy/ssh-action@v1.0.3
+        # ⭐️ [수정1] 시크릿 환경 변수 주입 추가
         env:
           GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          DB_URL: ${{ secrets.DB_URL }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          REDIS_HOST: ${{ secrets.REDIS_HOST }}
+          REDIS_PORT: ${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 180s
-          envs: GRAFANA_PASSWORD,FRONTEND_URL
+          # ⭐️ [수정1] 시크릿 환경 변수 주입 추가
+          envs: GRAFANA_PASSWORD,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
           script: |
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_URL="${{ github.event.client_payload.image_url }}"
@@ -60,12 +68,17 @@ jobs:
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
-            # ⭐️ [리뷰 반영] 파일이 없거나, 파일은 있는데 그라파나 설정이 누락되어 있으면 덮어쓰기!
+            # ⭐️ [수정2] 활성화된 Gateway 색상 동적 감지
+            ACTIVE_GATEWAY="gateway-blue"
+            if sudo docker ps --format '{{.Names}}' | grep -q "gateway-green"; then
+                ACTIVE_GATEWAY="gateway-green"
+            fi
+            
             if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
-                echo "⚙️ Creating or Updating Nginx config to include Grafana..."
+                echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
                 cat <<NGINX_CONF > ./nginx/conf.d/default.conf
                 upstream gateway_backend {
-                    server gateway-blue:8080;
+                    server $ACTIVE_GATEWAY:8080;
                 }
                 server {
                     listen 80;
@@ -94,15 +107,15 @@ jobs:
                 cd monitoring
                 if [ -f "docker-compose.monitoring.prod.yml" ]; then
                     if command -v docker-compose &> /dev/null; then
-                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker-compose -f docker-compose.monitoring.prod.yml up -d
+                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" sudo docker-compose -f docker-compose.monitoring.prod.yml up -d
                     else
-                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker compose -f docker-compose.monitoring.prod.yml up -d
+                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" sudo docker compose -f docker-compose.monitoring.prod.yml up -d
                     fi
                 elif [ -f "docker-compose.monitoring.yml" ]; then
                     if command -v docker-compose &> /dev/null; then
-                        docker-compose -f docker-compose.monitoring.yml up -d
+                        sudo docker-compose -f docker-compose.monitoring.yml up -d
                     else
-                        docker compose -f docker-compose.monitoring.yml up -d
+                        sudo docker compose -f docker-compose.monitoring.yml up -d
                     fi
                 fi
                 cd ..
@@ -110,7 +123,23 @@ jobs:
                 echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
             fi
 
+            # ⭐️ [수정3] 시스템 환경 변수를 .env 파일로 저장 (평문 노출 방지)
+            echo "FRONTEND_URL=$FRONTEND_URL" > .env
+            echo "DB_URL=$DB_URL" >> .env
+            echo "DB_USERNAME=$DB_USERNAME" >> .env
+            echo "DB_PASSWORD=$DB_PASSWORD" >> .env
+            echo "REDIS_HOST=$REDIS_HOST" >> .env
+            echo "REDIS_PORT=$REDIS_PORT" >> .env
+            echo "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env
+
+            if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
+                echo "GATEWAY_TAG=$IMAGE_TAG" >> .env
+            else
+                echo "GATEWAY_TAG=latest" >> .env
+            fi
+
             # --- [2] 메인 서비스 docker-compose.yml 생성 ---
+            # ⭐️ [수정3] ${{ secrets.* }} 대신 변수($DB_URL 등) 직접 참조
             cat <<'EOF' > docker-compose.yml
             version: '3.8'
             
@@ -135,12 +164,12 @@ jobs:
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
                   - FRONTEND_URL=${FRONTEND_URL}
-                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
-                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
-                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
-                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
-                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
-                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATASOURCE_URL=${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 extra_hosts: 
                   - "host.docker.internal:host-gateway"
@@ -161,12 +190,12 @@ jobs:
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
                   - FRONTEND_URL=${FRONTEND_URL}
-                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
-                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
-                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
-                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
-                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
-                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATASOURCE_URL=${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 extra_hosts:
                   - "host.docker.internal:host-gateway"
@@ -187,12 +216,12 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
-                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
-                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
-                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
-                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
-                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
-                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATASOURCE_URL=${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
@@ -206,12 +235,12 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
-                  - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
-                  - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
-                  - SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
-                  - SPRING_DATA_REDIS_HOST=${{ secrets.REDIS_HOST }}
-                  - SPRING_DATA_REDIS_PORT=${{ secrets.REDIS_PORT }}
-                  - SPRING_DATA_REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  - SPRING_DATASOURCE_URL=${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
@@ -220,14 +249,6 @@ jobs:
               msa-network:
                 external: true
             EOF
-
-            if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
-                echo "GATEWAY_TAG=$IMAGE_TAG" > .env
-            else
-                echo "GATEWAY_TAG=latest" > .env
-            fi
-            
-            echo "FRONTEND_URL=$FRONTEND_URL" >> .env
             
             if command -v docker-compose &> /dev/null; then
                 DOCKER_COMPOSE="docker-compose"
