@@ -8,11 +8,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # 1. 체크아웃
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 2. 모니터링 설정 파일 전송
       - name: Copy Monitoring Configs to Server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -22,22 +20,18 @@ jobs:
           source: "monitoring/"
           target: "~/app"
 
-      # 3. SSH 접속 및 배포
       - name: SSH Remote Commands
         uses: appleboy/ssh-action@v1.0.3
         env:
           GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
-          # ⭐️ Github Secrets에서 FRONTEND_URL 값을 가져옵니다.
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 180s
-          # ⭐️ 쉘 스크립트(script) 내부에서 사용할 수 있도록 변수명을 등록합니다.
           envs: GRAFANA_PASSWORD,FRONTEND_URL
           script: |
-            # --- [0] 입력값 검증 ---
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_URL="${{ github.event.client_payload.image_url }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
@@ -57,7 +51,6 @@ jobs:
                exit 1
             fi
 
-            # ⭐️ [리뷰 반영] FRONTEND_URL 미설정 시 조기 차단
             if [[ -z "$FRONTEND_URL" ]]; then
                 echo "❌ Error: FRONTEND_URL is empty"
                 exit 1
@@ -67,7 +60,32 @@ jobs:
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
-            # ⭐️ [리뷰 반영(Critical)] 메인 서비스가 뜨기 전에 모니터링이 네트워크를 참조할 수 있도록 미리 네트워크 생성
+            # ⭐️ [리뷰 반영] Nginx 초기 설정 파일이 없으면 기본값(blue 기준)으로 생성
+            # (Gateway 외의 서비스가 먼저 배포되더라도 Nginx가 정상적으로 뜰 수 있도록 보장)
+            if [ ! -f ./nginx/conf.d/default.conf ]; then
+                echo "⚙️ Creating initial Nginx config..."
+                cat <<NGINX_CONF > ./nginx/conf.d/default.conf
+                upstream gateway_backend {
+                    server gateway-blue:8080;
+                }
+                server {
+                    listen 80;
+                    location / {
+                        proxy_pass http://gateway_backend;
+                        proxy_set_header Host \$host;
+                        proxy_set_header X-Real-IP \$remote_addr;
+                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    }
+                    location /grafana/ {
+                        proxy_pass http://grafana:3000/;
+                        proxy_set_header Host \$host;
+                        proxy_set_header X-Real-IP \$remote_addr;
+                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    }
+                }
+            NGINX_CONF
+            fi
+            
             echo "🌐 Ensuring docker network 'msa-network' exists..."
             sudo docker network create msa-network || true
             
@@ -75,16 +93,13 @@ jobs:
             echo "📊 Starting Monitoring System..."
             if [ -d "./monitoring" ]; then
                 cd monitoring
-            
                 if [ -f "docker-compose.monitoring.prod.yml" ]; then
-                    echo "✅ Using PROD monitoring config..."
                     if command -v docker-compose &> /dev/null; then
                         GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker-compose -f docker-compose.monitoring.prod.yml up -d
                     else
                         GRAFANA_PASSWORD="$GRAFANA_PASSWORD" docker compose -f docker-compose.monitoring.prod.yml up -d
                     fi
                 elif [ -f "docker-compose.monitoring.yml" ]; then
-                    echo "⚠️ Using LOCAL monitoring config (Not Recommended for Prod)..."
                     if command -v docker-compose &> /dev/null; then
                         docker-compose -f docker-compose.monitoring.yml up -d
                     else
@@ -101,7 +116,6 @@ jobs:
             version: '3.8'
             
             services:
-              # [0] Nginx
               nginx:
                 image: nginx:1.25.4-alpine
                 container_name: nginx
@@ -113,7 +127,6 @@ jobs:
                 networks:
                   - msa-network
 
-              # [1] Gateway - Blue
               gateway-blue:
                 image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}
                 container_name: gateway-blue
@@ -122,7 +135,6 @@ jobs:
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
-                  # ⭐️ 게이트웨이에 프론트엔드 URL 주입
                   - FRONTEND_URL=${FRONTEND_URL}
                   - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
                   - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
@@ -141,7 +153,6 @@ jobs:
                   timeout: 5s
                   retries: 3
 
-              # [1] Gateway - Green
               gateway-green:
                 image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}
                 container_name: gateway-green
@@ -150,7 +161,6 @@ jobs:
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
-                  # ⭐️ 게이트웨이에 프론트엔드 URL 주입
                   - FRONTEND_URL=${FRONTEND_URL}
                   - SPRING_DATASOURCE_URL=${{ secrets.DB_URL }}
                   - SPRING_DATASOURCE_USERNAME=${{ secrets.DB_USERNAME }}
@@ -169,7 +179,6 @@ jobs:
                   timeout: 5s
                   retries: 3
 
-              # [2] API 서버
               api-server:
                 image: ghcr.io/final-project-gilmok/api-repo:latest
                 container_name: api-server
@@ -189,7 +198,6 @@ jobs:
                 networks:
                   - msa-network
 
-              # [3] 인증 서버
               auth-server:
                 image: ghcr.io/final-project-gilmok/auth-repo:latest
                 container_name: auth-server
@@ -209,22 +217,20 @@ jobs:
                 networks:
                   - msa-network
 
+            # ⭐️ [리뷰 반영] driver: bridge 대신 external: true 명시
             networks:
               msa-network:
-                driver: bridge
+                external: true
             EOF
 
-            # .env 생성 (메인 docker-compose가 읽을 파일)
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
                 echo "GATEWAY_TAG=$IMAGE_TAG" > .env
             else
                 echo "GATEWAY_TAG=latest" > .env
             fi
             
-            # ⭐️ .env 파일에 FRONTEND_URL 값 추가
             echo "FRONTEND_URL=$FRONTEND_URL" >> .env
             
-            # docker-compose 명령어 호환성 체크
             if command -v docker-compose &> /dev/null; then
                 DOCKER_COMPOSE="docker-compose"
             else
@@ -264,7 +270,6 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
-                # ⭐️ [핵심 변경] Nginx 설정 파일에 Grafana 라우팅(리버스 프록시) 추가
                 cat <<NGINX_CONF > ./nginx/conf.d/default.conf
                 upstream gateway_backend {
                     server gateway-$TARGET_COLOR:8080;
@@ -272,16 +277,12 @@ jobs:
             
                 server {
                     listen 80;
-            
-                    # 1. 메인 API 라우팅 (Gateway로 토스)
                     location / {
                         proxy_pass http://gateway_backend;
                         proxy_set_header Host \$host;
                         proxy_set_header X-Real-IP \$remote_addr;
                         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                     }
-            
-                    # 2. 그라파나 대시보드 라우팅 (컨테이너 3000포트로 토스)
                     location /grafana/ {
                         proxy_pass http://grafana:3000/;
                         proxy_set_header Host \$host;
@@ -304,6 +305,11 @@ jobs:
                 echo "🟢 Standard Deployment for $SERVICE_NAME..."
                 sudo $DOCKER_COMPOSE pull $SERVICE_NAME
                 sudo $DOCKER_COMPOSE up -d $SERVICE_NAME --remove-orphans
+            
+                # ⭐️ [리뷰 반영] api-server 등 일반 서비스 배포 시에도 Nginx가 꺼져있으면 띄우도록 보완
+                if ! sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
+                    sudo $DOCKER_COMPOSE up -d nginx
+                fi
             fi
             
             sudo docker image prune -f

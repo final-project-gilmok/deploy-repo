@@ -34,7 +34,7 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=false
 
       # Nginx 리버스 프록시 연동 설정
-      - GF_SERVER_DOMAIN=146.56.104.192
+      - GF_SERVER_DOMAIN=${GRAFANA_DOMAIN:-146.56.104.192}
       - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
     networks:
