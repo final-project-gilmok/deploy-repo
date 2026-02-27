@@ -43,10 +43,10 @@ jobs:
             IMAGE_URL="${{ github.event.client_payload.image_url }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
             
-            if [[ ! "$SERVICE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-              echo "❌ Error: Invalid Service Name"
-              exit 1
-            fi
+            case "$SERVICE_NAME" in
+              gateway-server|api-server|auth-server) ;;
+              *) echo "❌ Error: Invalid Service Name ($SERVICE_NAME). Not allowed."; exit 1 ;;
+            esac
             
             if [[ ! "$IMAGE_URL" =~ ^[a-zA-Z0-9._:/-]+$ ]]; then
                echo "❌ Error: Invalid Image URL"
@@ -67,65 +67,65 @@ jobs:
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
-            # 활성화된 Gateway 색상 동적 감지
             ACTIVE_GATEWAY="gateway-blue"
-            if sudo docker ps --format '{{.Names}}' | grep -q "gateway-green"; then
+            if [ -f ./nginx/conf.d/default.conf ] && grep -q "server gateway-green:8080;" ./nginx/conf.d/default.conf; then
                 ACTIVE_GATEWAY="gateway-green"
             fi
             
             if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
                 echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
-                cat <<NGINX_CONF > ./nginx/conf.d/default.conf
-                upstream gateway_backend {
-                    server $ACTIVE_GATEWAY:8080;
+                cat <<EOF > ./nginx/conf.d/default.conf
+            upstream gateway_backend {
+                server $ACTIVE_GATEWAY:8080;
+            }
+            server {
+                listen 80;
+                location / {
+                    proxy_pass http://gateway_backend;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
-                server {
-                    listen 80;
-                    location / {
-                        proxy_pass http://gateway_backend;
-                        proxy_set_header Host \$host;
-                        proxy_set_header X-Real-IP \$remote_addr;
-                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                    }
-                    location /grafana/ {
-                        proxy_pass http://grafana:3000/;
-                        proxy_set_header Host \$host;
-                        proxy_set_header X-Real-IP \$remote_addr;
-                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                    }
+                location /grafana/ {
+                    proxy_pass http://grafana:3000/;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
-            NGINX_CONF
+            }
+            EOF
             fi
             
-            # ⭐️ [리뷰 반영] 네트워크가 없을 때만 생성 (|| true 마스킹 제거)
             echo "🌐 Ensuring docker network 'msa-network' exists..."
             if ! sudo docker network ls --format '{{.Name}}' | grep -wq "^msa-network$"; then
                 sudo docker network create msa-network
             fi
             
-            # ⭐️ [리뷰 반영] 환경 변수를 .env에 저장 후 권한 제한(600)
-            echo "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" > .env
-            echo "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env
-            echo "FRONTEND_URL=$FRONTEND_URL" >> .env
-            echo "DB_URL=$DB_URL" >> .env
-            echo "DB_USERNAME=$DB_USERNAME" >> .env
-            echo "DB_PASSWORD=$DB_PASSWORD" >> .env
-            echo "REDIS_HOST=$REDIS_HOST" >> .env
-            echo "REDIS_PORT=$REDIS_PORT" >> .env
-            echo "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env
+            > .env
+            printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" >> .env
+            printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env
+            printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env
+            printf '%s\n' "DB_URL=$DB_URL" >> .env
+            printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env
+            printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env
+            printf '%s\n' "REDIS_HOST=$REDIS_HOST" >> .env
+            printf '%s\n' "REDIS_PORT=$REDIS_PORT" >> .env
+            printf '%s\n' "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env
             
-            # 타 사용자 접근 원천 차단
+            if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
+                printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env
+            elif [[ "$SERVICE_NAME" == "api-server" ]]; then
+                printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env
+            elif [[ "$SERVICE_NAME" == "auth-server" ]]; then
+                printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env
+            fi
+            
             chmod 600 .env
 
-            # --- [1] 모니터링 시스템 실행 ---
             echo "📊 Starting Monitoring System..."
             if [ -d "./monitoring" ]; then
                 cd monitoring
-                # 모니터링 폴더 내에서도 부모 폴더의 안전한 .env를 심볼릭 링크로 참조
                 ln -sf ../.env .env 
-            
-                # ⭐️ [리뷰 반영] sudo 인라인 환경변수(sudo VAR=.. docker-compose) 삭제
-                # (docker-compose가 심볼릭 링크된 .env 파일을 자체적으로 읽어서 처리함)
                 if [ -f "docker-compose.monitoring.prod.yml" ]; then
                     if command -v docker-compose &> /dev/null; then
                         sudo docker-compose -f docker-compose.monitoring.prod.yml up -d
@@ -144,16 +144,9 @@ jobs:
                 echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
             fi
 
-            if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
-                echo "GATEWAY_TAG=$IMAGE_TAG" >> .env
-            else
-                echo "GATEWAY_TAG=latest" >> .env
-            fi
-
-            # --- [2] 메인 서비스 docker-compose.yml 생성 ---
             cat <<'EOF' > docker-compose.yml
             version: '3.8'
-            
+
             services:
               nginx:
                 image: nginx:1.25.4-alpine
@@ -219,7 +212,7 @@ jobs:
                   retries: 3
 
               api-server:
-                image: ghcr.io/final-project-gilmok/api-repo:latest
+                image: ghcr.io/final-project-gilmok/api-repo:${API_TAG:-latest}
                 container_name: api-server
                 expose:
                   - "8080"
@@ -238,7 +231,7 @@ jobs:
                   - msa-network
 
               auth-server:
-                image: ghcr.io/final-project-gilmok/auth-repo:latest
+                image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}
                 container_name: auth-server
                 expose:
                   - "9000"
@@ -267,11 +260,10 @@ jobs:
                 DOCKER_COMPOSE="docker compose"
             fi
 
-            # --- [3] 배포 로직 분기 ---
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
                 echo "🔵 Gateway Service Detected -> Starting Blue/Green Deployment..."
             
-                if sudo docker ps --format '{{.Names}}' | grep -q "gateway-blue"; then
+                if [ "$ACTIVE_GATEWAY" == "gateway-blue" ]; then
                     CURRENT_COLOR="blue"
                     TARGET_COLOR="green"
                 else
@@ -300,27 +292,26 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
-                cat <<NGINX_CONF > ./nginx/conf.d/default.conf
-                upstream gateway_backend {
-                    server gateway-$TARGET_COLOR:8080;
+                cat <<EOF > ./nginx/conf.d/default.conf
+            upstream gateway_backend {
+                server gateway-$TARGET_COLOR:8080;
+            }
+            server {
+                listen 80;
+                location / {
+                    proxy_pass http://gateway_backend;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
-            
-                server {
-                    listen 80;
-                    location / {
-                        proxy_pass http://gateway_backend;
-                        proxy_set_header Host \$host;
-                        proxy_set_header X-Real-IP \$remote_addr;
-                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                    }
-                    location /grafana/ {
-                        proxy_pass http://grafana:3000/;
-                        proxy_set_header Host \$host;
-                        proxy_set_header X-Real-IP \$remote_addr;
-                        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                    }
+                location /grafana/ {
+                    proxy_pass http://grafana:3000/;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
-                NGINX_CONF
+            }
+            EOF
             
                 if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
                     sudo docker exec nginx nginx -s reload
@@ -341,5 +332,4 @@ jobs:
                 fi
             fi
             
-            sudo docker image prune -f
             echo "✨ All Done!"

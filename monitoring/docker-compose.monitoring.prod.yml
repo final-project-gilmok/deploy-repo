@@ -11,8 +11,9 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=15d'
-    ports:
-      - "9090:9090"
+    # ⭐️ [리뷰 4 반영] ports -> expose (보안)
+    expose:
+      - "9090"
     networks:
       - msa-network
     restart: always
@@ -23,17 +24,12 @@ services:
     container_name: grafana
     volumes:
       - grafana-data:/var/lib/grafana
-    # ⭐️ [수정1] ports: "3000:3000" 제거 -> 외부 접근 차단하고 내부(Nginx)에서만 통신하도록 expose 사용
     expose:
       - "3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?error_password_missing}
       - GF_USERS_ALLOW_SIGN_UP=false
-
-      # ⭐️ [수정2] 리뷰어 피드백 반영: 익명 접근 보안 위험 차단 (false로 변경)
       - GF_AUTH_ANONYMOUS_ENABLED=false
-
-      # Nginx 리버스 프록시 연동 설정
       - GF_SERVER_DOMAIN=${GRAFANA_DOMAIN:?error_grafana_domain_missing}
       - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
@@ -47,8 +43,9 @@ services:
   cadvisor:
     image: ghcr.io/google/cadvisor:v0.47.0
     container_name: cadvisor
-    ports:
-      - "8082:8080"
+    # ⭐️ [리뷰 4 반영] ports -> expose (보안)
+    expose:
+      - "8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
@@ -74,8 +71,9 @@ services:
       - '--path.procfs=/host/proc'
       - '--path.sysfs=/host/sys'
       - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
-    ports:
-      - "9100:9100"
+    # ⭐️ [리뷰 4 반영] ports -> expose (보안)
+    expose:
+      - "9100"
     networks:
       - msa-network
     restart: always
@@ -84,10 +82,10 @@ services:
   loki:
     image: grafana/loki:2.9.0
     container_name: loki
-    ports:
-      - "3100:3100"
+    # ⭐️ [리뷰 4 반영] ports -> expose (보안)
+    expose:
+      - "3100"
     volumes:
-      # [중요] 실제 파일명(.yml)과 일치해야 함
       - ./loki-config.yml:/etc/loki/local-config.yml
     command: -config.file=/etc/loki/local-config.yml
     networks:
@@ -100,12 +98,12 @@ services:
     container_name: promtail
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # [중요] 실제 파일명(.yml)과 일치해야 함
       - ./promtail-config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     networks:
       - msa-network
     restart: always
+
   # [7] Tempo (Distributed Tracing) - NEW!
   tempo:
     image: grafana/tempo:2.3.1
@@ -114,10 +112,11 @@ services:
     volumes:
       - ./tempo-config.yml:/etc/tempo.yml
       - tempo-data:/tmp/tempo
-    ports:
-      - "3200:3200" # Tempo HTTP API
-      - "4317:4317" # OTLP gRPC
-      - "9411:9411" # Zipkin (Spring Boot가 여기로 보냄)
+    # ⭐️ [리뷰 4 반영] ports -> expose (보안)
+    expose:
+      - "3200" # Tempo HTTP API
+      - "4317" # OTLP gRPC
+      - "9411" # Zipkin (Spring Boot가 여기로 보냄)
     networks:
       - msa-network
     restart: always
