@@ -40,18 +40,12 @@ jobs:
           envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
           script: |
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
-            IMAGE_URL="${{ github.event.client_payload.image_url }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
             
             case "$SERVICE_NAME" in
               gateway-server|api-server|auth-server) ;;
               *) echo "❌ Error: Invalid Service Name ($SERVICE_NAME). Not allowed."; exit 1 ;;
             esac
-            
-            if [[ ! "$IMAGE_URL" =~ ^[a-zA-Z0-9._:/-]+$ ]]; then
-               echo "❌ Error: Invalid Image URL"
-               exit 1
-            fi
             
             if [[ ! "$IMAGE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
                echo "❌ Error: Invalid Image Tag"
@@ -77,7 +71,7 @@ jobs:
               fi
             done
 
-            echo "🚀 Start Deploy: $SERVICE_NAME ($IMAGE_URL:$IMAGE_TAG)"
+            echo "🚀 Start Deploy: $SERVICE_NAME (Tag: $IMAGE_TAG)"
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
@@ -86,7 +80,6 @@ jobs:
                 ACTIVE_GATEWAY="gateway-green"
             fi
             
-            # ⭐️ [리뷰 반영] NGINX_EOF 따옴표 제거 및 $host, $remote_addr 등에 이스케이프(\) 적용 확인 완료
             if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
                 echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
                 cat <<NGINX_EOF > ./nginx/conf.d/default.conf
@@ -103,7 +96,7 @@ jobs:
                 }
                 location /grafana/ {
                     proxy_pass http://grafana:3000/;
-                    proxy_set_header Host \$host;
+                    proxy_set_header Host \$GRAFANA_DOMAIN;
                     proxy_set_header X-Real-IP \$remote_addr;
                     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
@@ -159,7 +152,6 @@ jobs:
                 echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
             fi
 
-            # ⭐️ [중요] docker-compose 영역의 'COMPOSE_EOF' 도 따옴표를 지워야 $GATEWAY_TAG 등이 정상 변환됩니다.
             cat <<COMPOSE_EOF > docker-compose.yml
             version: '3.8'
 
@@ -308,7 +300,6 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
-                # ⭐️ [리뷰 반영] NGINX_EOF 따옴표 제거
                 cat <<NGINX_EOF > ./nginx/conf.d/default.conf
             upstream gateway_backend {
                 server gateway-$TARGET_COLOR:8080;
@@ -323,7 +314,7 @@ jobs:
                 }
                 location /grafana/ {
                     proxy_pass http://grafana:3000/;
-                    proxy_set_header Host \$host;
+                    proxy_set_header Host \$GRAFANA_DOMAIN;
                     proxy_set_header X-Real-IP \$remote_addr;
                     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
