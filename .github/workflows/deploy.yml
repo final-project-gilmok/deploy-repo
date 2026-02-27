@@ -60,10 +60,9 @@ jobs:
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
-            # ⭐️ [리뷰 반영] Nginx 초기 설정 파일이 없으면 기본값(blue 기준)으로 생성
-            # (Gateway 외의 서비스가 먼저 배포되더라도 Nginx가 정상적으로 뜰 수 있도록 보장)
-            if [ ! -f ./nginx/conf.d/default.conf ]; then
-                echo "⚙️ Creating initial Nginx config..."
+            # ⭐️ [리뷰 반영] 파일이 없거나, 파일은 있는데 그라파나 설정이 누락되어 있으면 덮어쓰기!
+            if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
+                echo "⚙️ Creating or Updating Nginx config to include Grafana..."
                 cat <<NGINX_CONF > ./nginx/conf.d/default.conf
                 upstream gateway_backend {
                     server gateway-blue:8080;
@@ -217,7 +216,6 @@ jobs:
                 networks:
                   - msa-network
 
-            # ⭐️ [리뷰 반영] driver: bridge 대신 external: true 명시
             networks:
               msa-network:
                 external: true
@@ -306,7 +304,6 @@ jobs:
                 sudo $DOCKER_COMPOSE pull $SERVICE_NAME
                 sudo $DOCKER_COMPOSE up -d $SERVICE_NAME --remove-orphans
             
-                # ⭐️ [리뷰 반영] api-server 등 일반 서비스 배포 시에도 Nginx가 꺼져있으면 띄우도록 보완
                 if ! sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
                     sudo $DOCKER_COMPOSE up -d nginx
                 fi
