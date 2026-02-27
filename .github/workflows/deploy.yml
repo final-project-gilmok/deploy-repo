@@ -22,7 +22,6 @@ jobs:
 
       - name: SSH Remote Commands
         uses: appleboy/ssh-action@v1.0.3
-        # ⭐️ [수정1] 사용할 시크릿 변수 모두 추가 (GRAFANA_DOMAIN 포함)
         env:
           GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
           GRAFANA_DOMAIN: ${{ secrets.GRAFANA_DOMAIN }}
@@ -38,7 +37,6 @@ jobs:
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 180s
-          # ⭐️ [수정2] envs에도 추가된 변수들 명시
           envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
           script: |
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
@@ -69,7 +67,7 @@ jobs:
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
-            # ⭐️ [수정3] 활성화된 Gateway 색상 동적 감지 (Nginx 라우팅 오류 방지)
+            # 활성화된 Gateway 색상 동적 감지
             ACTIVE_GATEWAY="gateway-blue"
             if sudo docker ps --format '{{.Names}}' | grep -q "gateway-green"; then
                 ACTIVE_GATEWAY="gateway-green"
@@ -99,11 +97,15 @@ jobs:
             NGINX_CONF
             fi
             
+            # ⭐️ [리뷰 반영] 네트워크가 없을 때만 생성 (|| true 마스킹 제거)
             echo "🌐 Ensuring docker network 'msa-network' exists..."
-            sudo docker network create msa-network || true
+            if ! sudo docker network ls --format '{{.Name}}' | grep -wq "^msa-network$"; then
+                sudo docker network create msa-network
+            fi
             
-            # ⭐️ [수정4] 환경 변수를 .env 파일로 저장하여 평문 노출을 방지하고 도커 컴포즈가 읽을 수 있게 함
-            echo "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" > .env
+            # ⭐️ [리뷰 반영] 환경 변수를 .env에 저장 후 권한 제한(600)
+            echo "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" > .env
+            echo "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env
             echo "FRONTEND_URL=$FRONTEND_URL" >> .env
             echo "DB_URL=$DB_URL" >> .env
             echo "DB_USERNAME=$DB_USERNAME" >> .env
@@ -111,17 +113,24 @@ jobs:
             echo "REDIS_HOST=$REDIS_HOST" >> .env
             echo "REDIS_PORT=$REDIS_PORT" >> .env
             echo "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env
+            
+            # 타 사용자 접근 원천 차단
+            chmod 600 .env
 
             # --- [1] 모니터링 시스템 실행 ---
             echo "📊 Starting Monitoring System..."
             if [ -d "./monitoring" ]; then
                 cd monitoring
+                # 모니터링 폴더 내에서도 부모 폴더의 안전한 .env를 심볼릭 링크로 참조
+                ln -sf ../.env .env 
+            
+                # ⭐️ [리뷰 반영] sudo 인라인 환경변수(sudo VAR=.. docker-compose) 삭제
+                # (docker-compose가 심볼릭 링크된 .env 파일을 자체적으로 읽어서 처리함)
                 if [ -f "docker-compose.monitoring.prod.yml" ]; then
                     if command -v docker-compose &> /dev/null; then
-                        # ⭐️ [수정5] .env 상위 디렉토리 참조 혹은 직접 주입 (GRAFANA_DOMAIN 포함)
-                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" GRAFANA_DOMAIN="$GRAFANA_DOMAIN" sudo docker-compose -f docker-compose.monitoring.prod.yml up -d
+                        sudo docker-compose -f docker-compose.monitoring.prod.yml up -d
                     else
-                        GRAFANA_PASSWORD="$GRAFANA_PASSWORD" GRAFANA_DOMAIN="$GRAFANA_DOMAIN" sudo docker compose -f docker-compose.monitoring.prod.yml up -d
+                        sudo docker compose -f docker-compose.monitoring.prod.yml up -d
                     fi
                 elif [ -f "docker-compose.monitoring.yml" ]; then
                     if command -v docker-compose &> /dev/null; then
@@ -142,7 +151,6 @@ jobs:
             fi
 
             # --- [2] 메인 서비스 docker-compose.yml 생성 ---
-            # ⭐️ [수정6] 평문 ${{ secrets.* }} 대신 시스템 환경변수(${DB_URL} 등)로 변경
             cat <<'EOF' > docker-compose.yml
             version: '3.8'
             
