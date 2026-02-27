@@ -57,9 +57,19 @@ jobs:
                exit 1
             fi
 
+            # ⭐️ [리뷰 반영] FRONTEND_URL 미설정 시 조기 차단
+            if [[ -z "$FRONTEND_URL" ]]; then
+                echo "❌ Error: FRONTEND_URL is empty"
+                exit 1
+            fi
+
             echo "🚀 Start Deploy: $SERVICE_NAME ($IMAGE_URL:$IMAGE_TAG)"
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
+            
+            # ⭐️ [리뷰 반영(Critical)] 메인 서비스가 뜨기 전에 모니터링이 네트워크를 참조할 수 있도록 미리 네트워크 생성
+            echo "🌐 Ensuring docker network 'msa-network' exists..."
+            sudo docker network create msa-network || true
             
             # --- [1] 모니터링 시스템 실행 ---
             echo "📊 Starting Monitoring System..."
