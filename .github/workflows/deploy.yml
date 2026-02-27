@@ -39,6 +39,9 @@ jobs:
           timeout: 180s
           envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
           script: |
+            # ⭐️ [리뷰 반영 2] 스크립트 도중 에러가 나면 즉시 실패 처리하도록 엄격한 모드 적용
+            set -euo pipefail
+            
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
             
@@ -75,16 +78,12 @@ jobs:
             
             mkdir -p ~/app/nginx/conf.d && cd ~/app
             
-            ACTIVE_GATEWAY="gateway-blue"
-            if [ -f ./nginx/conf.d/default.conf ] && grep -q "server gateway-green:8080;" ./nginx/conf.d/default.conf; then
-                ACTIVE_GATEWAY="gateway-green"
-            fi
-            
-            if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
-                echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
+            # ⭐️ [리뷰 반영 1] 중복되는 Nginx 설정 생성을 함수(render_nginx_conf)로 분리
+            render_nginx_conf() {
+                local upstream_host="$1"
                 cat <<NGINX_EOF > ./nginx/conf.d/default.conf
             upstream gateway_backend {
-                server $ACTIVE_GATEWAY:8080;
+                server ${upstream_host}:8080;
             }
             server {
                 listen 80;
@@ -102,11 +101,31 @@ jobs:
                 }
             }
             NGINX_EOF
+            }
+            
+            ACTIVE_GATEWAY="gateway-blue"
+            if [ -f ./nginx/conf.d/default.conf ] && grep -q "server gateway-green:8080;" ./nginx/conf.d/default.conf; then
+                ACTIVE_GATEWAY="gateway-green"
+            fi
+            
+            if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
+                echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
+                # ⭐️ 함수 호출로 대체!
+                render_nginx_conf "$ACTIVE_GATEWAY"
             fi
             
             echo "🌐 Ensuring docker network 'msa-network' exists..."
             if ! sudo docker network ls --format '{{.Name}}' | grep -wq "^msa-network$"; then
                 sudo docker network create msa-network
+            fi
+            
+            EXISTING_GATEWAY_TAG=""
+            EXISTING_API_TAG=""
+            EXISTING_AUTH_TAG=""
+            if [ -f .env ]; then
+                EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env | cut -d= -f2- || true)
+                EXISTING_API_TAG=$(grep "^API_TAG=" .env | cut -d= -f2- || true)
+                EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
             fi
             
             > .env
@@ -122,9 +141,15 @@ jobs:
             
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
                 printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env
+                [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
+                [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
             elif [[ "$SERVICE_NAME" == "api-server" ]]; then
+                [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
                 printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env
+                [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
             elif [[ "$SERVICE_NAME" == "auth-server" ]]; then
+                [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
+                [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
                 printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env
             fi
             
@@ -300,26 +325,8 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
-                cat <<NGINX_EOF > ./nginx/conf.d/default.conf
-            upstream gateway_backend {
-                server gateway-$TARGET_COLOR:8080;
-            }
-            server {
-                listen 80;
-                location / {
-                    proxy_pass http://gateway_backend;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                }
-                location /grafana/ {
-                    proxy_pass http://grafana:3000/;
-                    proxy_set_header Host \$GRAFANA_DOMAIN;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                }
-            }
-            NGINX_EOF
+                # ⭐️ 함수 호출로 대체! (중복 제거)
+                render_nginx_conf "gateway-$TARGET_COLOR"
             
                 if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
                     sudo docker exec nginx nginx -s reload
