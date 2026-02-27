@@ -58,10 +58,24 @@ jobs:
                exit 1
             fi
 
-            if [[ -z "$FRONTEND_URL" ]]; then
-                echo "❌ Error: FRONTEND_URL is empty"
+            REQUIRED_VARS=(
+              "GRAFANA_PASSWORD"
+              "GRAFANA_DOMAIN"
+              "FRONTEND_URL"
+              "DB_URL"
+              "DB_USERNAME"
+              "DB_PASSWORD"
+              "REDIS_HOST"
+              "REDIS_PORT"
+              "REDIS_PASSWORD"
+            )
+            
+            for VAR_NAME in "${REQUIRED_VARS[@]}"; do
+              if [[ -z "${!VAR_NAME}" ]]; then
+                echo "❌ Error: Required environment variable '$VAR_NAME' is empty or not set."
                 exit 1
-            fi
+              fi
+            done
 
             echo "🚀 Start Deploy: $SERVICE_NAME ($IMAGE_URL:$IMAGE_TAG)"
             
@@ -74,7 +88,7 @@ jobs:
             
             if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
                 echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
-                cat <<EOF > ./nginx/conf.d/default.conf
+                cat <<'NGINX_EOF' > ./nginx/conf.d/default.conf
             upstream gateway_backend {
                 server $ACTIVE_GATEWAY:8080;
             }
@@ -82,18 +96,18 @@ jobs:
                 listen 80;
                 location / {
                     proxy_pass http://gateway_backend;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 }
                 location /grafana/ {
                     proxy_pass http://grafana:3000/;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 }
             }
-            EOF
+            NGINX_EOF
             fi
             
             echo "🌐 Ensuring docker network 'msa-network' exists..."
@@ -144,7 +158,7 @@ jobs:
                 echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
             fi
 
-            cat <<'EOF' > docker-compose.yml
+            cat <<'COMPOSE_EOF' > docker-compose.yml
             version: '3.8'
 
             services:
@@ -252,7 +266,7 @@ jobs:
             networks:
               msa-network:
                 external: true
-            EOF
+            COMPOSE_EOF
             
             if command -v docker-compose &> /dev/null; then
                 DOCKER_COMPOSE="docker-compose"
@@ -292,7 +306,7 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
-                cat <<EOF > ./nginx/conf.d/default.conf
+                cat <<'NGINX_EOF' > ./nginx/conf.d/default.conf
             upstream gateway_backend {
                 server gateway-$TARGET_COLOR:8080;
             }
@@ -300,18 +314,18 @@ jobs:
                 listen 80;
                 location / {
                     proxy_pass http://gateway_backend;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 }
                 location /grafana/ {
                     proxy_pass http://grafana:3000/;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 }
             }
-            EOF
+            NGINX_EOF
             
                 if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
                     sudo docker exec nginx nginx -s reload
