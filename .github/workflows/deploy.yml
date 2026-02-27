@@ -39,17 +39,16 @@ jobs:
           timeout: 180s
           envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
           script: |
-            # ⭐️ [리뷰 반영 2] 스크립트 도중 에러가 나면 즉시 실패 처리하도록 엄격한 모드 적용
             set -euo pipefail
-            
+
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
-            
+
             case "$SERVICE_NAME" in
               gateway-server|api-server|auth-server) ;;
               *) echo "❌ Error: Invalid Service Name ($SERVICE_NAME). Not allowed."; exit 1 ;;
             esac
-            
+
             if [[ ! "$IMAGE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
                echo "❌ Error: Invalid Image Tag"
                exit 1
@@ -66,7 +65,7 @@ jobs:
               "REDIS_PORT"
               "REDIS_PASSWORD"
             )
-            
+
             for VAR_NAME in "${REQUIRED_VARS[@]}"; do
               if [[ -z "${!VAR_NAME}" ]]; then
                 echo "❌ Error: Required environment variable '$VAR_NAME' is empty or not set."
@@ -75,276 +74,277 @@ jobs:
             done
 
             echo "🚀 Start Deploy: $SERVICE_NAME (Tag: $IMAGE_TAG)"
-            
+
             mkdir -p ~/app/nginx/conf.d && cd ~/app
-            
-            # ⭐️ [리뷰 반영 1] 중복되는 Nginx 설정 생성을 함수(render_nginx_conf)로 분리
+
             render_nginx_conf() {
                 local upstream_host="$1"
-                cat <<NGINX_EOF > ./nginx/conf.d/default.conf
-            upstream gateway_backend {
-                server ${upstream_host}:8080;
-            }
-            server {
-                listen 80;
-                location / {
-                    proxy_pass http://gateway_backend;
-                    proxy_set_header Host \$host;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                }
-                location /grafana/ {
-                    proxy_pass http://grafana:3000/;
-                    proxy_set_header Host \$GRAFANA_DOMAIN;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                }
-            }
-            NGINX_EOF
-            }
-            
-            ACTIVE_GATEWAY="gateway-blue"
-            if [ -f ./nginx/conf.d/default.conf ] && grep -q "server gateway-green:8080;" ./nginx/conf.d/default.conf; then
-                ACTIVE_GATEWAY="gateway-green"
-            fi
-            
-            if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
-                echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
-                # ⭐️ 함수 호출로 대체!
-                render_nginx_conf "$ACTIVE_GATEWAY"
-            fi
-            
-            echo "🌐 Ensuring docker network 'msa-network' exists..."
-            if ! sudo docker network ls --format '{{.Name}}' | grep -wq "^msa-network$"; then
-                sudo docker network create msa-network
-            fi
-            
-            EXISTING_GATEWAY_TAG=""
-            EXISTING_API_TAG=""
-            EXISTING_AUTH_TAG=""
-            if [ -f .env ]; then
-                EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env | cut -d= -f2- || true)
-                EXISTING_API_TAG=$(grep "^API_TAG=" .env | cut -d= -f2- || true)
-                EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
-            fi
-            
-            > .env
-            printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" >> .env
-            printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env
-            printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env
-            printf '%s\n' "DB_URL=$DB_URL" >> .env
-            printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env
-            printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env
-            printf '%s\n' "REDIS_HOST=$REDIS_HOST" >> .env
-            printf '%s\n' "REDIS_PORT=$REDIS_PORT" >> .env
-            printf '%s\n' "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env
-            
-            if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
-                printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env
-                [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
-                [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
-            elif [[ "$SERVICE_NAME" == "api-server" ]]; then
-                [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
-                printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env
-                [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
-            elif [[ "$SERVICE_NAME" == "auth-server" ]]; then
-                [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
-                [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
-                printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env
-            fi
-            
-            chmod 600 .env
+  cat <<NGINX_EOF > ./nginx/conf.d/default.conf
+  upstream gateway_backend {
+  server ${upstream_host}:8080;
+}
 
-            echo "📊 Starting Monitoring System..."
-            if [ -d "./monitoring" ]; then
-                cd monitoring
-                ln -sf ../.env .env 
-                if [ -f "docker-compose.monitoring.prod.yml" ]; then
-                    if command -v docker-compose &> /dev/null; then
-                        sudo docker-compose -f docker-compose.monitoring.prod.yml up -d
-                    else
-                        sudo docker compose -f docker-compose.monitoring.prod.yml up -d
-                    fi
-                elif [ -f "docker-compose.monitoring.yml" ]; then
-                    if command -v docker-compose &> /dev/null; then
-                        sudo docker-compose -f docker-compose.monitoring.yml up -d
-                    else
-                        sudo docker compose -f docker-compose.monitoring.yml up -d
-                    fi
-                fi
-                cd ..
-            else
-                echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
-            fi
+  server {
+  listen 80;
 
-            cat <<COMPOSE_EOF > docker-compose.yml
-            version: '3.8'
+  location / {
+  proxy_pass http://gateway_backend;
+  proxy_set_header Host \$host;
+  proxy_set_header X-Real-IP \$remote_addr;
+  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
 
-            services:
-              nginx:
-                image: nginx:1.25.4-alpine
-                container_name: nginx
-                ports:
-                  - "80:80"
-                volumes:
-                  - ./nginx/conf.d:/etc/nginx/conf.d
-                restart: always
-                networks:
-                  - msa-network
+  location /grafana/ {
+  proxy_pass http://grafana:3000/;
+  proxy_set_header Host \$GRAFANA_DOMAIN;
+  proxy_set_header X-Real-IP \$remote_addr;
+  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
+}
+  NGINX_EOF
+  }
 
-              gateway-blue:
-                image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
-                container_name: gateway-blue
-                environment:
-                  - SERVER_PORT=8080
-                  - SPRING_PROFILES_ACTIVE=prod
-                  - API_SERVER_URL=http://api-server:8080
-                  - AUTH_SERVER_URL=http://auth-server:9000
-                  - FRONTEND_URL=\${FRONTEND_URL}
-                  - SPRING_DATASOURCE_URL=\${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
-                  - SPRING_DATA_REDIS_SSL_ENABLED=true
-                extra_hosts: 
-                  - "host.docker.internal:host-gateway"
-                networks:
-                  - msa-network
-                healthcheck:
-                  test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-                  interval: 10s
-                  timeout: 5s
-                  retries: 3
+  ACTIVE_GATEWAY="gateway-blue"
+  if [ -f ./nginx/conf.d/default.conf ] && grep -q "server gateway-green:8080;" ./nginx/conf.d/default.conf; then
+  ACTIVE_GATEWAY="gateway-green"
+  fi
+  
+  if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
+  echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
+  render_nginx_conf "$ACTIVE_GATEWAY"
+  fi
+  
+  echo "🌐 Ensuring docker network 'msa-network' exists..."
+  if ! sudo docker network ls --format '{{.Name}}' | grep -wq "^msa-network$"; then
+  sudo docker network create msa-network
+  fi
+  
+  EXISTING_GATEWAY_TAG=""
+  EXISTING_API_TAG=""
+  EXISTING_AUTH_TAG=""
+  if [ -f .env ]; then
+  EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env | cut -d= -f2- || true)
+  EXISTING_API_TAG=$(grep "^API_TAG=" .env | cut -d= -f2- || true)
+  EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
+  fi
 
-              gateway-green:
-                image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
-                container_name: gateway-green
-                environment:
-                  - SERVER_PORT=8080
-                  - SPRING_PROFILES_ACTIVE=prod
-                  - API_SERVER_URL=http://api-server:8080
-                  - AUTH_SERVER_URL=http://auth-server:9000
-                  - FRONTEND_URL=\${FRONTEND_URL}
-                  - SPRING_DATASOURCE_URL=\${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
-                  - SPRING_DATA_REDIS_SSL_ENABLED=true
-                extra_hosts:
-                  - "host.docker.internal:host-gateway"
-                networks:
-                  - msa-network
-                healthcheck:
-                  test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-                  interval: 10s
-                  timeout: 5s
-                  retries: 3
+  > .env
+  printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" >> .env
+  printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env
+  printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env
+  printf '%s\n' "DB_URL=$DB_URL" >> .env
+  printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env
+  printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env
+  printf '%s\n' "REDIS_HOST=$REDIS_HOST" >> .env
+  printf '%s\n' "REDIS_PORT=$REDIS_PORT" >> .env
+  printf '%s\n' "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env
+  
+  if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
+      printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env
+      [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
+      [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
+  elif [[ "$SERVICE_NAME" == "api-server" ]]; then
+      [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
+      printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env
+      [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
+  elif [[ "$SERVICE_NAME" == "auth-server" ]]; then
+      [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
+      [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
+      printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env
+  fi
+  
+  chmod 600 .env
+  
+  echo "📊 Starting Monitoring System..."
+  if [ -d "./monitoring" ]; then
+      cd monitoring
+      ln -sf ../.env .env
+      if [ -f "docker-compose.monitoring.prod.yml" ]; then
+          if command -v docker-compose &> /dev/null; then
+              sudo docker-compose -f docker-compose.monitoring.prod.yml up -d
+          else
+              sudo docker compose -f docker-compose.monitoring.prod.yml up -d
+          fi
+      elif [ -f "docker-compose.monitoring.yml" ]; then
+          if command -v docker-compose &> /dev/null; then
+              sudo docker-compose -f docker-compose.monitoring.yml up -d
+          else
+              sudo docker compose -f docker-compose.monitoring.yml up -d
+          fi
+      fi
+      cd ..
+  else
+      echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
+  fi
+  
+  cat <<COMPOSE_EOF > docker-compose.yml
+version: '3.8'
 
-              api-server:
-                image: ghcr.io/final-project-gilmok/api-repo:\${API_TAG:-latest}
-                container_name: api-server
-                expose:
-                  - "8080"
-                restart: always
-                environment:
-                  - TZ=Asia/Seoul
-                  - SPRING_PROFILES_ACTIVE=prod
-                  - SPRING_DATASOURCE_URL=\${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
-                  - SPRING_DATA_REDIS_SSL_ENABLED=true
-                networks:
-                  - msa-network
+services:
+  nginx:
+    image: nginx:1.25.4-alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    restart: always
+    networks:
+      - msa-network
 
-              auth-server:
-                image: ghcr.io/final-project-gilmok/auth-repo:\${AUTH_TAG:-latest}
-                container_name: auth-server
-                expose:
-                  - "9000"
-                restart: always
-                environment:
-                  - TZ=Asia/Seoul
-                  - SPRING_PROFILES_ACTIVE=prod
-                  - SPRING_DATASOURCE_URL=\${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
-                  - SPRING_DATA_REDIS_SSL_ENABLED=true
-                networks:
-                  - msa-network
+  gateway-blue:
+    image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
+    container_name: gateway-blue
+    environment:
+      - SERVER_PORT=8080
+      - SPRING_PROFILES_ACTIVE=prod
+      - API_SERVER_URL=http://api-server:8080
+      - AUTH_SERVER_URL=http://auth-server:9000
+      - FRONTEND_URL=\${FRONTEND_URL}
+      - SPRING_DATASOURCE_URL=\${DB_URL}
+      - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+      - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+      - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
+      - SPRING_DATA_REDIS_SSL_ENABLED=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - msa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-            networks:
-              msa-network:
-                external: true
-            COMPOSE_EOF
-            
-            if command -v docker-compose &> /dev/null; then
-                DOCKER_COMPOSE="docker-compose"
-            else
-                DOCKER_COMPOSE="docker compose"
-            fi
+  gateway-green:
+    image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
+    container_name: gateway-green
+    environment:
+      - SERVER_PORT=8080
+      - SPRING_PROFILES_ACTIVE=prod
+      - API_SERVER_URL=http://api-server:8080
+      - AUTH_SERVER_URL=http://auth-server:9000
+      - FRONTEND_URL=\${FRONTEND_URL}
+      - SPRING_DATASOURCE_URL=\${DB_URL}
+      - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+      - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+      - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
+      - SPRING_DATA_REDIS_SSL_ENABLED=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - msa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-            if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
-                echo "🔵 Gateway Service Detected -> Starting Blue/Green Deployment..."
-            
-                if [ "$ACTIVE_GATEWAY" == "gateway-blue" ]; then
-                    CURRENT_COLOR="blue"
-                    TARGET_COLOR="green"
-                else
-                    CURRENT_COLOR="green"
-                    TARGET_COLOR="blue"
-                fi
-                echo "Current: $CURRENT_COLOR / Target: $TARGET_COLOR"
-            
-                sudo $DOCKER_COMPOSE pull gateway-$TARGET_COLOR
-                sudo $DOCKER_COMPOSE up -d gateway-$TARGET_COLOR
-            
-                echo "Waiting for Health Check..."
-                for i in {1..12}; do
-                    if [ "$(sudo docker inspect --format='{{.State.Health.Status}}' gateway-$TARGET_COLOR)" == "healthy" ]; then
-                        echo "✅ Health Check Passed!"
-                        break
-                    fi
-            
-                    if [ "$i" == "12" ]; then
-                        echo "❌ Health Check Failed! Aborting..."
-                        sudo $DOCKER_COMPOSE stop gateway-$TARGET_COLOR
-                        exit 1
-                    fi
-                    echo "Checking... ($i/12)"
-                    sleep 5
-                done
-            
-                echo "Switching Traffic to $TARGET_COLOR..."
-                # ⭐️ 함수 호출로 대체! (중복 제거)
-                render_nginx_conf "gateway-$TARGET_COLOR"
-            
-                if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
-                    sudo docker exec nginx nginx -s reload
-                else
-                    sudo $DOCKER_COMPOSE up -d nginx
-                fi
-            
-                echo "Stopping Old Version ($CURRENT_COLOR)..."
-                sudo $DOCKER_COMPOSE stop gateway-$CURRENT_COLOR
-            
-            else
-                echo "🟢 Standard Deployment for $SERVICE_NAME..."
-                sudo $DOCKER_COMPOSE pull $SERVICE_NAME
-                sudo $DOCKER_COMPOSE up -d $SERVICE_NAME --remove-orphans
-            
-                if ! sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
-                    sudo $DOCKER_COMPOSE up -d nginx
-                fi
-            fi
-            
-            echo "✨ All Done!"
+  api-server:
+    image: ghcr.io/final-project-gilmok/api-repo:\${API_TAG:-latest}
+    container_name: api-server
+    expose:
+      - "8080"
+    restart: always
+    environment:
+      - TZ=Asia/Seoul
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=\${DB_URL}
+      - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+      - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+      - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
+      - SPRING_DATA_REDIS_SSL_ENABLED=true
+    networks:
+      - msa-network
+
+  auth-server:
+    image: ghcr.io/final-project-gilmok/auth-repo:\${AUTH_TAG:-latest}
+    container_name: auth-server
+    expose:
+      - "9000"
+    restart: always
+    environment:
+      - TZ=Asia/Seoul
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=\${DB_URL}
+      - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+      - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+      - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
+      - SPRING_DATA_REDIS_SSL_ENABLED=true
+    networks:
+      - msa-network
+
+networks:
+  msa-network:
+    external: true
+  COMPOSE_EOF
+  
+  if command -v docker-compose &> /dev/null; then
+  DOCKER_COMPOSE="docker-compose"
+  else
+  DOCKER_COMPOSE="docker compose"
+  fi
+  
+  if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
+  echo "🔵 Gateway Service Detected -> Starting Blue/Green Deployment..."
+  
+  if [ "$ACTIVE_GATEWAY" == "gateway-blue" ]; then
+  CURRENT_COLOR="blue"
+  TARGET_COLOR="green"
+  else
+  CURRENT_COLOR="green"
+  TARGET_COLOR="blue"
+  fi
+echo "Current: $CURRENT_COLOR / Target: $TARGET_COLOR"
+  
+  sudo $DOCKER_COMPOSE pull gateway-$TARGET_COLOR
+  sudo $DOCKER_COMPOSE up -d gateway-$TARGET_COLOR
+  
+  echo "Waiting for Health Check..."
+  for i in {1..12}; do
+  status="$(sudo docker inspect --format='{{.State.Health.Status}}' "gateway-$TARGET_COLOR" 2>/dev/null || echo "starting")"
+  if [ "$status" = "healthy" ]; then
+  echo "✅ Health Check Passed!"
+  break
+  fi
+  
+  if [ "$i" == "12" ]; then
+  echo "❌ Health Check Failed! Aborting..."
+  sudo $DOCKER_COMPOSE stop gateway-$TARGET_COLOR
+  exit 1
+  fi
+  echo "Checking... ($i/12)"
+  sleep 5
+  done
+  
+  echo "Switching Traffic to $TARGET_COLOR..."
+  render_nginx_conf "gateway-$TARGET_COLOR"
+  
+  if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
+  sudo docker exec nginx nginx -s reload
+  else
+  sudo $DOCKER_COMPOSE up -d nginx
+  fi
+  
+  echo "Stopping Old Version ($CURRENT_COLOR)..."
+  sudo $DOCKER_COMPOSE stop gateway-$CURRENT_COLOR
+  
+  else
+  echo "🟢 Standard Deployment for $SERVICE_NAME..."
+  sudo $DOCKER_COMPOSE pull $SERVICE_NAME
+  sudo $DOCKER_COMPOSE up -d $SERVICE_NAME --remove-orphans
+  
+  if ! sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
+  sudo $DOCKER_COMPOSE up -d nginx
+  fi
+  fi
+  
+  echo "✨ All Done!"
