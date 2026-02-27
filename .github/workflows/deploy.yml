@@ -86,9 +86,10 @@ jobs:
                 ACTIVE_GATEWAY="gateway-green"
             fi
             
+            # ⭐️ [리뷰 반영] NGINX_EOF 따옴표 제거 및 $host, $remote_addr 등에 이스케이프(\) 적용 확인 완료
             if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
                 echo "⚙️ Creating or Updating Nginx config for $ACTIVE_GATEWAY..."
-                cat <<'NGINX_EOF' > ./nginx/conf.d/default.conf
+                cat <<NGINX_EOF > ./nginx/conf.d/default.conf
             upstream gateway_backend {
                 server $ACTIVE_GATEWAY:8080;
             }
@@ -96,15 +97,15 @@ jobs:
                 listen 80;
                 location / {
                     proxy_pass http://gateway_backend;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
                 location /grafana/ {
                     proxy_pass http://grafana:3000/;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
             }
             NGINX_EOF
@@ -158,7 +159,8 @@ jobs:
                 echo "⚠️ Warning: monitoring folder not found. Skipping monitoring setup."
             fi
 
-            cat <<'COMPOSE_EOF' > docker-compose.yml
+            # ⭐️ [중요] docker-compose 영역의 'COMPOSE_EOF' 도 따옴표를 지워야 $GATEWAY_TAG 등이 정상 변환됩니다.
+            cat <<COMPOSE_EOF > docker-compose.yml
             version: '3.8'
 
             services:
@@ -174,20 +176,20 @@ jobs:
                   - msa-network
 
               gateway-blue:
-                image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}
+                image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
                 container_name: gateway-blue
                 environment:
                   - SERVER_PORT=8080
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
-                  - FRONTEND_URL=${FRONTEND_URL}
-                  - SPRING_DATASOURCE_URL=${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+                  - FRONTEND_URL=\${FRONTEND_URL}
+                  - SPRING_DATASOURCE_URL=\${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 extra_hosts: 
                   - "host.docker.internal:host-gateway"
@@ -200,20 +202,20 @@ jobs:
                   retries: 3
 
               gateway-green:
-                image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}
+                image: ghcr.io/final-project-gilmok/gateway-repo:\${GATEWAY_TAG:-latest}
                 container_name: gateway-green
                 environment:
                   - SERVER_PORT=8080
                   - SPRING_PROFILES_ACTIVE=prod
                   - API_SERVER_URL=http://api-server:8080
                   - AUTH_SERVER_URL=http://auth-server:9000
-                  - FRONTEND_URL=${FRONTEND_URL}
-                  - SPRING_DATASOURCE_URL=${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+                  - FRONTEND_URL=\${FRONTEND_URL}
+                  - SPRING_DATASOURCE_URL=\${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 extra_hosts:
                   - "host.docker.internal:host-gateway"
@@ -226,7 +228,7 @@ jobs:
                   retries: 3
 
               api-server:
-                image: ghcr.io/final-project-gilmok/api-repo:${API_TAG:-latest}
+                image: ghcr.io/final-project-gilmok/api-repo:\${API_TAG:-latest}
                 container_name: api-server
                 expose:
                   - "8080"
@@ -234,18 +236,18 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
-                  - SPRING_DATASOURCE_URL=${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+                  - SPRING_DATASOURCE_URL=\${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
 
               auth-server:
-                image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}
+                image: ghcr.io/final-project-gilmok/auth-repo:\${AUTH_TAG:-latest}
                 container_name: auth-server
                 expose:
                   - "9000"
@@ -253,12 +255,12 @@ jobs:
                 environment:
                   - TZ=Asia/Seoul
                   - SPRING_PROFILES_ACTIVE=prod
-                  - SPRING_DATASOURCE_URL=${DB_URL}
-                  - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
-                  - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-                  - SPRING_DATA_REDIS_HOST=${REDIS_HOST}
-                  - SPRING_DATA_REDIS_PORT=${REDIS_PORT}
-                  - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+                  - SPRING_DATASOURCE_URL=\${DB_URL}
+                  - SPRING_DATASOURCE_USERNAME=\${DB_USERNAME}
+                  - SPRING_DATASOURCE_PASSWORD=\${DB_PASSWORD}
+                  - SPRING_DATA_REDIS_HOST=\${REDIS_HOST}
+                  - SPRING_DATA_REDIS_PORT=\${REDIS_PORT}
+                  - SPRING_DATA_REDIS_PASSWORD=\${REDIS_PASSWORD}
                   - SPRING_DATA_REDIS_SSL_ENABLED=true
                 networks:
                   - msa-network
@@ -306,7 +308,8 @@ jobs:
                 done
             
                 echo "Switching Traffic to $TARGET_COLOR..."
-                cat <<'NGINX_EOF' > ./nginx/conf.d/default.conf
+                # ⭐️ [리뷰 반영] NGINX_EOF 따옴표 제거
+                cat <<NGINX_EOF > ./nginx/conf.d/default.conf
             upstream gateway_backend {
                 server gateway-$TARGET_COLOR:8080;
             }
@@ -314,15 +317,15 @@ jobs:
                 listen 80;
                 location / {
                     proxy_pass http://gateway_backend;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
                 location /grafana/ {
                     proxy_pass http://grafana:3000/;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                 }
             }
             NGINX_EOF
