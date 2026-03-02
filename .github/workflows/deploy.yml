@@ -73,11 +73,16 @@ jobs:
               DOCKER_COMPOSE="docker compose"
             fi
 
+            # ✅ 변경 1: $* → "$@" 로 변경, sudo sh -c 제거
+            # 이전: sudo sh -c "$DOCKER_COMPOSE $*"
+            #   → 인자 전체를 문자열로 합쳐 sh에 넘기므로
+            #     공백 포함 인자가 잘못 분리될 수 있음
+            # 이후: sudo $DOCKER_COMPOSE "$@"
+            #   → 각 인자를 독립적으로 전달하므로 안전
             run_compose() {
-              sudo sh -c "$DOCKER_COMPOSE $*"
+              sudo $DOCKER_COMPOSE "$@"
             }
 
-            # ⭐️ Docker 필터로 nginx 정확 매칭 (부분 일치 오탐 방지)
             is_nginx_running() {
               [ "$(sudo docker ps --filter name=^nginx$ --format '{{.Names}}')" = "nginx" ]
             }
@@ -157,14 +162,21 @@ jobs:
             mv .env.tmp .env
             chmod 600 .env
 
+            # ✅ 변경 2: 모니터링 실패 시 배포 중단 방지
+            # 이전: run_compose 실패 → set -e 에 의해 전체 스크립트 중단
+            #   → 모니터링 문제로 앱 서비스 배포가 통째로 실패하는 상황 발생
+            # 이후: || echo "⚠️ Warning" 로 실패를 경고로 처리
+            #   → 모니터링이 죽어도 앱 배포는 계속 진행됨
             echo "📊 Starting Monitoring System..."
             if [ -d "./monitoring" ]; then
               cd monitoring
               ln -sf ../.env .env
               if [ -f "docker-compose.monitoring.prod.yml" ]; then
-                run_compose "-f docker-compose.monitoring.prod.yml up -d"
+                run_compose -f docker-compose.monitoring.prod.yml up -d || \
+                  echo "⚠️ Warning: Monitoring startup failed. Continuing deployment..."
               elif [ -f "docker-compose.monitoring.yml" ]; then
-                run_compose "-f docker-compose.monitoring.yml up -d"
+                run_compose -f docker-compose.monitoring.yml up -d || \
+                  echo "⚠️ Warning: Monitoring startup failed. Continuing deployment..."
               else
                 echo "⚠️ Warning: monitoring compose file not found. Skipping monitoring startup."
               fi
@@ -276,8 +288,8 @@ jobs:
               fi
               echo "Current: $CURRENT_COLOR / Target: $TARGET_COLOR"
 
-              run_compose "pull gateway-$TARGET_COLOR"
-              run_compose "up -d gateway-$TARGET_COLOR"
+              run_compose pull "gateway-$TARGET_COLOR"
+              run_compose up -d "gateway-$TARGET_COLOR"
 
               echo "Waiting for Health Check..."
               for i in {1..12}; do
@@ -287,11 +299,11 @@ jobs:
                 fi
                 if [ "$status" = "unhealthy" ]; then
                   echo "❌ Container entered unhealthy state. Aborting..."
-                  run_compose "stop gateway-$TARGET_COLOR"; exit 1
+                  run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
                 if [ "$i" -eq 12 ]; then
                   echo "❌ Health Check Timed Out. Aborting..."
-                  run_compose "stop gateway-$TARGET_COLOR"; exit 1
+                  run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
                 echo "Checking... ($i/12)"; sleep 5
               done
@@ -300,7 +312,6 @@ jobs:
               cp ./nginx/conf.d/default.conf ./nginx/conf.d/default.conf.bak
               render_nginx_conf "gateway-$TARGET_COLOR"
 
-              # ⭐️ 3곳 모두 is_nginx_running() 함수로 통일
               if is_nginx_running; then
                 if ! sudo docker exec nginx nginx -t; then
                   echo "⬅️ Nginx config test failed. Rolling back..."
@@ -309,7 +320,7 @@ jobs:
                 fi
                 sudo docker exec nginx nginx -s reload
               else
-                run_compose "up -d nginx"
+                run_compose up -d nginx
                 echo "Waiting for nginx to start..."
                 for i in {1..6}; do
                   nginx_status="$(sudo docker inspect --format='{{.State.Status}}' nginx 2>/dev/null || echo "unknown")"
@@ -330,12 +341,18 @@ jobs:
               fi
 
               echo "Stopping Old Version ($CURRENT_COLOR)..."
-              run_compose "stop gateway-$CURRENT_COLOR"
+              run_compose stop "gateway-$CURRENT_COLOR"
+
+              # ✅ 변경 3: 배포 성공 후 .bak 파일 정리
+              # 이전: .bak 파일이 서버에 영구적으로 누적됨
+              # 이후: 성공적으로 트래픽 전환 완료 후에만 삭제
+              #   → 실패 시에는 .bak이 남아 롤백에 활용 가능
+              rm -f ./nginx/conf.d/default.conf.bak
 
             else
               echo "🟢 Standard Deployment for $SERVICE_NAME..."
-              run_compose "pull $SERVICE_NAME"
-              run_compose "up -d --remove-orphans $SERVICE_NAME"
+              run_compose pull "$SERVICE_NAME"
+              run_compose up -d --remove-orphans "$SERVICE_NAME"
 
               echo "Waiting for Health Check..."
               for i in {1..12}; do
@@ -352,9 +369,8 @@ jobs:
                 echo "Checking... ($i/12)"; sleep 5
               done
 
-              # ⭐️ else 블록 하단도 is_nginx_running() 함수로 통일
               if ! is_nginx_running; then
-                run_compose "up -d nginx"
+                run_compose up -d nginx
               fi
             fi
 
