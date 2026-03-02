@@ -287,7 +287,10 @@ jobs:
 
               # ⭐️ nginx -t로 설정 검증 후 reload
               if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
-                sudo docker exec nginx nginx -t && \
+                if ! sudo docker exec nginx nginx -t; then
+                  echo "❌ Nginx config test failed. Aborting before traffic cutover."
+                  exit 1
+                fi
                 sudo docker exec nginx nginx -s reload
               else
                 sudo $DOCKER_COMPOSE up -d nginx
