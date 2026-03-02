@@ -146,6 +146,10 @@ jobs:
               EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
             fi
 
+            # ✅ umask 077 적용: .env.tmp 생성 시점부터 600 권한으로 생성
+            # 스크립트 중단 시에도 .env.tmp가 기본 umask(644)로 남지 않음
+            # umask는 현재 SSH 세션 내에서만 유효 → 서버 전체에 영향 없음
+            umask 077
             printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" > .env.tmp
             printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env.tmp
             printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env.tmp
@@ -298,7 +302,6 @@ jobs:
               run_compose up -d "gateway-$TARGET_COLOR"
 
               echo "Waiting for Health Check..."
-              # ✅ 18 × 5s = 90초 (start_period 30s 고려 여유 확보)
               for i in {1..18}; do
                 status="$(sudo docker inspect --format='{{.State.Health.Status}}' "gateway-$TARGET_COLOR" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
@@ -343,7 +346,6 @@ jobs:
               run_compose up -d --remove-orphans "$SERVICE_NAME"
 
               echo "Waiting for Health Check..."
-              # 24 × 10s = 240초 (start_period 30s + interval 30s × retries 3 = 120초 기준)
               for i in {1..24}; do
                 status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$SERVICE_NAME" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
