@@ -211,6 +211,8 @@ jobs:
                 printf '  gateway-%s:\n' "$COLOR"
                 printf '    image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}\n'
                 printf '    container_name: gateway-%s\n' "$COLOR"
+                printf '    expose:\n'
+                printf '      - "8080"\n'
                 printf '    environment:\n'
                 printf '      - SERVER_PORT=8080\n'
                 printf '      - SPRING_PROFILES_ACTIVE=prod\n'
