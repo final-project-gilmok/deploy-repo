@@ -167,7 +167,6 @@ jobs:
 
             # ⭐️ docker-compose.yml도 printf로 작성 (Heredoc 완전 제거)
             {
-              printf 'version: '"'"'3.8'"'"'\n\n'
               printf 'services:\n'
               printf '  nginx:\n'
               printf '    image: nginx:1.25.4-alpine\n'
@@ -271,7 +270,7 @@ jobs:
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
                 fi
-                if [ "$i" == "12" ]; then
+                if [ "$i" -eq 12 ]; then
                   echo "❌ Health Check Failed! Aborting..."
                   sudo $DOCKER_COMPOSE stop gateway-$TARGET_COLOR; exit 1
                 fi
