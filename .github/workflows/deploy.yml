@@ -67,14 +67,12 @@ jobs:
             echo "🚀 Start Deploy: $SERVICE_NAME (Tag: $IMAGE_TAG)"
             mkdir -p ~/app/nginx/conf.d && cd ~/app
 
-            # DOCKER_COMPOSE 변수 최상단 선언
             if command -v docker-compose &> /dev/null; then
               DOCKER_COMPOSE="docker-compose"
             else
               DOCKER_COMPOSE="docker compose"
             fi
 
-            # docker compose 명령어 래핑 함수 (sudo + 변수 실행 불안정 방지)
             run_compose() {
               sudo sh -c "$DOCKER_COMPOSE $*"
             }
@@ -127,7 +125,6 @@ jobs:
               EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
             fi
 
-            # ⭐️ 임시 파일에 쓰고 mv로 원자적 교체 (race condition 방지)
             printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" > .env.tmp
             printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env.tmp
             printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env.tmp
@@ -171,7 +168,6 @@ jobs:
               echo "⚠️ Warning: monitoring folder not found. Skipping."
             fi
 
-            # ⭐️ docker-compose.yml도 임시 파일 후 mv로 원자적 교체
             {
               printf 'services:\n'
               printf '  nginx:\n'
@@ -210,7 +206,6 @@ jobs:
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
                 printf '      retries: 3\n'
-                # ⭐️ Spring Boot 기동 시간 확보용 start_period 추가
                 printf '      start_period: 30s\n\n'
               done
               printf '  api-server:\n'
@@ -285,7 +280,6 @@ jobs:
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
                 fi
-                # ⭐️ unhealthy 확정 시 즉시 실패 (기다리지 않음)
                 if [ "$status" = "unhealthy" ]; then
                   echo "❌ Container entered unhealthy state. Aborting..."
                   run_compose "stop gateway-$TARGET_COLOR"; exit 1
@@ -298,20 +292,38 @@ jobs:
               done
 
               echo "Switching Traffic to $TARGET_COLOR..."
-              # ⭐️ nginx conf 교체 전 현재 설정 백업
               cp ./nginx/conf.d/default.conf ./nginx/conf.d/default.conf.bak
               render_nginx_conf "gateway-$TARGET_COLOR"
 
+              # ⭐️ nginx 실행 중인 경우
               if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
-                # ⭐️ nginx -t 실패 시 백업으로 롤백
                 if ! sudo docker exec nginx nginx -t; then
                   echo "⬅️ Nginx config test failed. Rolling back..."
                   cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
                   exit 1
                 fi
                 sudo docker exec nginx nginx -s reload
+
+              # ⭐️ nginx 미실행인 경우 → 새로 띄운 후 실제 동작 검증
               else
                 run_compose "up -d nginx"
+                echo "Waiting for nginx to start..."
+                for i in {1..6}; do
+                  nginx_status="$(sudo docker inspect --format='{{.State.Status}}' nginx 2>/dev/null || echo "unknown")"
+                  if [ "$nginx_status" = "running" ]; then
+                    echo "✅ Nginx is running."; break
+                  elif [ "$nginx_status" = "exited" ] || [ "$nginx_status" = "dead" ]; then
+                    echo "❌ Nginx failed to start. Rolling back..."
+                    cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
+                    exit 1
+                  fi
+                  if [ "$i" -eq 6 ]; then
+                    echo "❌ Nginx did not start in time. Rolling back..."
+                    cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
+                    exit 1
+                  fi
+                  echo "Waiting... ($i/6)"; sleep 3
+                done
               fi
 
               echo "Stopping Old Version ($CURRENT_COLOR)..."
@@ -328,7 +340,6 @@ jobs:
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
                 fi
-                # ⭐️ unhealthy 확정 시 즉시 실패
                 if [ "$status" = "unhealthy" ]; then
                   echo "❌ Container entered unhealthy state. Aborting..."; exit 1
                 fi
