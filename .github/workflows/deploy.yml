@@ -286,6 +286,7 @@ jobs:
               render_nginx_conf "gateway-$TARGET_COLOR"
 
               if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
+                sudo docker exec nginx nginx -t && \
                 sudo docker exec nginx nginx -s reload
               else
                 sudo $DOCKER_COMPOSE up -d nginx
