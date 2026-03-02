@@ -77,6 +77,11 @@ jobs:
               sudo sh -c "$DOCKER_COMPOSE $*"
             }
 
+            # ⭐️ Docker 필터로 nginx 정확 매칭 (부분 일치 오탐 방지)
+            is_nginx_running() {
+              [ "$(sudo docker ps --filter name=^nginx$ --format '{{.Names}}')" = "nginx" ]
+            }
+
             render_nginx_conf() {
               local upstream_host="$1"
               {
@@ -295,16 +300,14 @@ jobs:
               cp ./nginx/conf.d/default.conf ./nginx/conf.d/default.conf.bak
               render_nginx_conf "gateway-$TARGET_COLOR"
 
-              # ⭐️ nginx 실행 중인 경우
-              if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
+              # ⭐️ 3곳 모두 is_nginx_running() 함수로 통일
+              if is_nginx_running; then
                 if ! sudo docker exec nginx nginx -t; then
                   echo "⬅️ Nginx config test failed. Rolling back..."
                   cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
                   exit 1
                 fi
                 sudo docker exec nginx nginx -s reload
-
-              # ⭐️ nginx 미실행인 경우 → 새로 띄운 후 실제 동작 검증
               else
                 run_compose "up -d nginx"
                 echo "Waiting for nginx to start..."
@@ -349,7 +352,8 @@ jobs:
                 echo "Checking... ($i/12)"; sleep 5
               done
 
-              if ! sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
+              # ⭐️ else 블록 하단도 is_nginx_running() 함수로 통일
+              if ! is_nginx_running; then
                 run_compose "up -d nginx"
               fi
             fi
