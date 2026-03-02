@@ -73,18 +73,32 @@ jobs:
               DOCKER_COMPOSE="docker compose"
             fi
 
-            # ✅ 변경 1: $* → "$@" 로 변경, sudo sh -c 제거
-            # 이전: sudo sh -c "$DOCKER_COMPOSE $*"
-            #   → 인자 전체를 문자열로 합쳐 sh에 넘기므로
-            #     공백 포함 인자가 잘못 분리될 수 있음
-            # 이후: sudo $DOCKER_COMPOSE "$@"
-            #   → 각 인자를 독립적으로 전달하므로 안전
             run_compose() {
               sudo $DOCKER_COMPOSE "$@"
             }
 
             is_nginx_running() {
               [ "$(sudo docker ps --filter name=^nginx$ --format '{{.Names}}')" = "nginx" ]
+            }
+
+            # ✅ 변경 1: nginx 신규 기동 검증 공통 함수로 추출
+            # gateway/api/auth 두 분기에서 모두 재사용
+            # 기동 후 running 상태를 직접 확인해 crash 즉시 감지
+            start_and_verify_nginx() {
+              run_compose up -d nginx
+              echo "Waiting for nginx to start..."
+              for i in {1..6}; do
+                nginx_status="$(sudo docker inspect --format='{{.State.Status}}' nginx 2>/dev/null || echo "unknown")"
+                if [ "$nginx_status" = "running" ]; then
+                  echo "✅ Nginx is running."; return 0
+                elif [ "$nginx_status" = "exited" ] || [ "$nginx_status" = "dead" ]; then
+                  echo "❌ Nginx failed to start."; return 1
+                fi
+                if [ "$i" -eq 6 ]; then
+                  echo "❌ Nginx did not start in time."; return 1
+                fi
+                echo "Waiting... ($i/6)"; sleep 3
+              done
             }
 
             render_nginx_conf() {
@@ -162,11 +176,6 @@ jobs:
             mv .env.tmp .env
             chmod 600 .env
 
-            # ✅ 변경 2: 모니터링 실패 시 배포 중단 방지
-            # 이전: run_compose 실패 → set -e 에 의해 전체 스크립트 중단
-            #   → 모니터링 문제로 앱 서비스 배포가 통째로 실패하는 상황 발생
-            # 이후: || echo "⚠️ Warning" 로 실패를 경고로 처리
-            #   → 모니터링이 죽어도 앱 배포는 계속 진행됨
             echo "📊 Starting Monitoring System..."
             if [ -d "./monitoring" ]; then
               cd monitoring
@@ -320,33 +329,15 @@ jobs:
                 fi
                 sudo docker exec nginx nginx -s reload
               else
-                run_compose up -d nginx
-                echo "Waiting for nginx to start..."
-                for i in {1..6}; do
-                  nginx_status="$(sudo docker inspect --format='{{.State.Status}}' nginx 2>/dev/null || echo "unknown")"
-                  if [ "$nginx_status" = "running" ]; then
-                    echo "✅ Nginx is running."; break
-                  elif [ "$nginx_status" = "exited" ] || [ "$nginx_status" = "dead" ]; then
-                    echo "❌ Nginx failed to start. Rolling back..."
-                    cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
-                    exit 1
-                  fi
-                  if [ "$i" -eq 6 ]; then
-                    echo "❌ Nginx did not start in time. Rolling back..."
-                    cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
-                    exit 1
-                  fi
-                  echo "Waiting... ($i/6)"; sleep 3
-                done
+                # ✅ 공통 함수 사용 (gateway 분기)
+                if ! start_and_verify_nginx; then
+                  cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
+                  exit 1
+                fi
               fi
 
               echo "Stopping Old Version ($CURRENT_COLOR)..."
               run_compose stop "gateway-$CURRENT_COLOR"
-
-              # ✅ 변경 3: 배포 성공 후 .bak 파일 정리
-              # 이전: .bak 파일이 서버에 영구적으로 누적됨
-              # 이후: 성공적으로 트래픽 전환 완료 후에만 삭제
-              #   → 실패 시에는 .bak이 남아 롤백에 활용 가능
               rm -f ./nginx/conf.d/default.conf.bak
 
             else
@@ -354,8 +345,12 @@ jobs:
               run_compose pull "$SERVICE_NAME"
               run_compose up -d --remove-orphans "$SERVICE_NAME"
 
+              # ✅ 변경 2: api/auth 헬스체크 대기 시간 연장
+              # start_period(30s) + interval(30s) × retries(3) = 최소 120초 필요
+              # 기존: 12 × 5s = 60초 → 오탐 타임아웃 가능
+              # 변경: 24 × 10s = 240초 → 충분한 여유
               echo "Waiting for Health Check..."
-              for i in {1..12}; do
+              for i in {1..24}; do
                 status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$SERVICE_NAME" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
@@ -363,14 +358,19 @@ jobs:
                 if [ "$status" = "unhealthy" ]; then
                   echo "❌ Container entered unhealthy state. Aborting..."; exit 1
                 fi
-                if [ "$i" -eq 12 ]; then
+                if [ "$i" -eq 24 ]; then
                   echo "❌ Health Check Timed Out. Aborting..."; exit 1
                 fi
-                echo "Checking... ($i/12)"; sleep 5
+                echo "Checking... ($i/24)"; sleep 10
               done
 
+              # ✅ 변경 3: api/auth 분기 nginx 신규 기동 시에도 검증 추가
+              # 기존: up -d 후 바로 성공 처리 → nginx crash 감지 불가
+              # 변경: start_and_verify_nginx() 함수로 running 상태 확인
               if ! is_nginx_running; then
-                run_compose up -d nginx
+                if ! start_and_verify_nginx; then
+                  exit 1
+                fi
               fi
             fi
 
