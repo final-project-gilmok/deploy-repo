@@ -231,7 +231,8 @@ jobs:
                 printf '    networks:\n'
                 printf '      - msa-network\n'
                 printf '    healthcheck:\n'
-                printf '      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]\n'
+                # ✅ curl → wget으로 교체 (Alpine 기본 포함, curl 의존성 제거)
+                printf '      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/actuator/health"]\n'
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
                 printf '      retries: 3\n'
@@ -256,7 +257,8 @@ jobs:
               printf '    networks:\n'
               printf '      - msa-network\n'
               printf '    healthcheck:\n'
-              printf '      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]\n'
+              # ✅ curl → wget으로 교체
+              printf '      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/actuator/health"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
@@ -280,7 +282,8 @@ jobs:
               printf '    networks:\n'
               printf '      - msa-network\n'
               printf '    healthcheck:\n'
-              printf '      test: ["CMD", "curl", "-f", "http://localhost:9000/actuator/health"]\n'
+              # ✅ curl → wget으로 교체
+              printf '      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9000/actuator/health"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
