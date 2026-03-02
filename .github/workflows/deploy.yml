@@ -231,8 +231,8 @@ jobs:
                 printf '    networks:\n'
                 printf '      - msa-network\n'
                 printf '    healthcheck:\n'
-                # ✅ curl → wget으로 교체 (Alpine 기본 포함, curl 의존성 제거)
-                printf '      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/actuator/health"]\n'
+                # ✅ wget 우선, 없으면 curl fallback (CMD-SHELL로 쉘 연산자 사용)
+                printf '      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/actuator/health || command -v curl >/dev/null 2>&1 && curl -fsS http://localhost:8080/actuator/health >/dev/null"]\n'
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
                 printf '      retries: 3\n'
@@ -257,8 +257,8 @@ jobs:
               printf '    networks:\n'
               printf '      - msa-network\n'
               printf '    healthcheck:\n'
-              # ✅ curl → wget으로 교체
-              printf '      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/actuator/health"]\n'
+              # ✅ wget 우선, 없으면 curl fallback
+              printf '      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/actuator/health || command -v curl >/dev/null 2>&1 && curl -fsS http://localhost:8080/actuator/health >/dev/null"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
@@ -282,8 +282,8 @@ jobs:
               printf '    networks:\n'
               printf '      - msa-network\n'
               printf '    healthcheck:\n'
-              # ✅ curl → wget으로 교체
-              printf '      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9000/actuator/health"]\n'
+              # ✅ wget 우선, 없으면 curl fallback
+              printf '      test: ["CMD-SHELL", "wget -q --spider http://localhost:9000/actuator/health || command -v curl >/dev/null 2>&1 && curl -fsS http://localhost:9000/actuator/health >/dev/null"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
