@@ -67,7 +67,13 @@ jobs:
             echo "🚀 Start Deploy: $SERVICE_NAME (Tag: $IMAGE_TAG)"
             mkdir -p ~/app/nginx/conf.d && cd ~/app
 
-            # ⭐️ Heredoc 제거 → printf로 Nginx conf 파일 작성 (들여쓰기 충돌 원천 차단)
+            # ⭐️ docker-compose 명령어 변수 - 상단에서 한 번만 선언, 이후 재사용
+            if command -v docker-compose &> /dev/null; then
+              DOCKER_COMPOSE="docker-compose"
+            else
+              DOCKER_COMPOSE="docker compose"
+            fi
+
             render_nginx_conf() {
               local upstream_host="$1"
               {
@@ -148,24 +154,18 @@ jobs:
               cd monitoring
               ln -sf ../.env .env
               if [ -f "docker-compose.monitoring.prod.yml" ]; then
-                if command -v docker-compose &> /dev/null; then
-                  sudo docker-compose -f docker-compose.monitoring.prod.yml up -d
-                else
-                  sudo docker compose -f docker-compose.monitoring.prod.yml up -d
-                fi
+                sudo $DOCKER_COMPOSE -f docker-compose.monitoring.prod.yml up -d
               elif [ -f "docker-compose.monitoring.yml" ]; then
-                if command -v docker-compose &> /dev/null; then
-                  sudo docker-compose -f docker-compose.monitoring.yml up -d
-                else
-                  sudo docker compose -f docker-compose.monitoring.yml up -d
-                fi
+                sudo $DOCKER_COMPOSE -f docker-compose.monitoring.yml up -d
+              else
+                # ⭐️ compose 파일이 둘 다 없을 경우 경고 로그 출력 (무음 통과 방지)
+                echo "⚠️ Warning: monitoring compose file not found. Skipping monitoring startup."
               fi
               cd ..
             else
               echo "⚠️ Warning: monitoring folder not found. Skipping."
             fi
 
-            # ⭐️ docker-compose.yml도 printf로 작성 (Heredoc 완전 제거)
             {
               printf 'services:\n'
               printf '  nginx:\n'
@@ -222,7 +222,12 @@ jobs:
               printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
               printf '    networks:\n'
-              printf '      - msa-network\n\n'
+              printf '      - msa-network\n'
+              printf '    healthcheck:\n'
+              printf '      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]\n'
+              printf '      interval: 30s\n'
+              printf '      timeout: 10s\n'
+              printf '      retries: 3\n\n'
               printf '  auth-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}\n'
               printf '    container_name: auth-server\n'
@@ -240,17 +245,17 @@ jobs:
               printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
               printf '    networks:\n'
-              printf '      - msa-network\n\n'
+              printf '      - msa-network\n'
+              printf '    healthcheck:\n'
+              # ⭐️ auth-server는 9000 포트로 수정
+              printf '      test: ["CMD", "curl", "-f", "http://localhost:9000/actuator/health"]\n'
+              printf '      interval: 30s\n'
+              printf '      timeout: 10s\n'
+              printf '      retries: 3\n\n'
               printf 'networks:\n'
               printf '  msa-network:\n'
               printf '    external: true\n'
             } > docker-compose.yml
-
-            if command -v docker-compose &> /dev/null; then
-              DOCKER_COMPOSE="docker-compose"
-            else
-              DOCKER_COMPOSE="docker compose"
-            fi
 
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
               echo "🔵 Gateway Blue/Green Deployment..."
