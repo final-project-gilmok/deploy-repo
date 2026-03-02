@@ -297,7 +297,7 @@ jobs:
             else
               echo "🟢 Standard Deployment for $SERVICE_NAME..."
               sudo $DOCKER_COMPOSE pull $SERVICE_NAME
-              sudo $DOCKER_COMPOSE up -d $SERVICE_NAME --remove-orphans
+              sudo $DOCKER_COMPOSE up -d --remove-orphans $SERVICE_NAME
               if ! sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
                 sudo $DOCKER_COMPOSE up -d nginx
               fi
