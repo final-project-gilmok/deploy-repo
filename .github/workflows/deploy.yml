@@ -36,7 +36,7 @@ jobs:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
-          timeout: 180s
+          timeout: 300s
           envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
           script: |
             set -euo pipefail
@@ -67,12 +67,17 @@ jobs:
             echo "🚀 Start Deploy: $SERVICE_NAME (Tag: $IMAGE_TAG)"
             mkdir -p ~/app/nginx/conf.d && cd ~/app
 
-            # ⭐️ DOCKER_COMPOSE 변수 최상단 선언 → 이후 전체에서 재사용
+            # DOCKER_COMPOSE 변수 최상단 선언
             if command -v docker-compose &> /dev/null; then
               DOCKER_COMPOSE="docker-compose"
             else
               DOCKER_COMPOSE="docker compose"
             fi
+
+            # docker compose 명령어 래핑 함수 (sudo + 변수 실행 불안정 방지)
+            run_compose() {
+              sudo sh -c "$DOCKER_COMPOSE $*"
+            }
 
             render_nginx_conf() {
               local upstream_host="$1"
@@ -122,31 +127,32 @@ jobs:
               EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
             fi
 
-            > .env
-            printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" >> .env
-            printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env
-            printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env
-            printf '%s\n' "DB_URL=$DB_URL" >> .env
-            printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env
-            printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env
-            printf '%s\n' "REDIS_HOST=$REDIS_HOST" >> .env
-            printf '%s\n' "REDIS_PORT=$REDIS_PORT" >> .env
-            printf '%s\n' "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env
+            # ⭐️ 임시 파일에 쓰고 mv로 원자적 교체 (race condition 방지)
+            printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" > .env.tmp
+            printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env.tmp
+            printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env.tmp
+            printf '%s\n' "DB_URL=$DB_URL" >> .env.tmp
+            printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env.tmp
+            printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env.tmp
+            printf '%s\n' "REDIS_HOST=$REDIS_HOST" >> .env.tmp
+            printf '%s\n' "REDIS_PORT=$REDIS_PORT" >> .env.tmp
+            printf '%s\n' "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env.tmp
 
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
-              printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env
-              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
-              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
+              printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env.tmp
+              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
+              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
             elif [[ "$SERVICE_NAME" == "api-server" ]]; then
-              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
-              printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env
-              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env
+              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
+              printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env.tmp
+              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
             elif [[ "$SERVICE_NAME" == "auth-server" ]]; then
-              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env
-              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env
-              printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env
+              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
+              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
+              printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env.tmp
             fi
 
+            mv .env.tmp .env
             chmod 600 .env
 
             echo "📊 Starting Monitoring System..."
@@ -154,11 +160,10 @@ jobs:
               cd monitoring
               ln -sf ../.env .env
               if [ -f "docker-compose.monitoring.prod.yml" ]; then
-                sudo $DOCKER_COMPOSE -f docker-compose.monitoring.prod.yml up -d
+                run_compose "-f docker-compose.monitoring.prod.yml up -d"
               elif [ -f "docker-compose.monitoring.yml" ]; then
-                sudo $DOCKER_COMPOSE -f docker-compose.monitoring.yml up -d
+                run_compose "-f docker-compose.monitoring.yml up -d"
               else
-                # ⭐️ compose 파일 없을 때 경고 (무음 통과 방지)
                 echo "⚠️ Warning: monitoring compose file not found. Skipping monitoring startup."
               fi
               cd ..
@@ -166,6 +171,7 @@ jobs:
               echo "⚠️ Warning: monitoring folder not found. Skipping."
             fi
 
+            # ⭐️ docker-compose.yml도 임시 파일 후 mv로 원자적 교체
             {
               printf 'services:\n'
               printf '  nginx:\n'
@@ -203,7 +209,9 @@ jobs:
                 printf '      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]\n'
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
-                printf '      retries: 3\n\n'
+                printf '      retries: 3\n'
+                # ⭐️ Spring Boot 기동 시간 확보용 start_period 추가
+                printf '      start_period: 30s\n\n'
               done
               printf '  api-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/api-repo:${API_TAG:-latest}\n'
@@ -227,7 +235,8 @@ jobs:
               printf '      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
-              printf '      retries: 3\n\n'
+              printf '      retries: 3\n'
+              printf '      start_period: 30s\n\n'
               printf '  auth-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}\n'
               printf '    container_name: auth-server\n'
@@ -247,15 +256,16 @@ jobs:
               printf '    networks:\n'
               printf '      - msa-network\n'
               printf '    healthcheck:\n'
-              # ⭐️ auth-server 포트 9000으로 수정
               printf '      test: ["CMD", "curl", "-f", "http://localhost:9000/actuator/health"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
-              printf '      retries: 3\n\n'
+              printf '      retries: 3\n'
+              printf '      start_period: 30s\n\n'
               printf 'networks:\n'
               printf '  msa-network:\n'
               printf '    external: true\n'
-            } > docker-compose.yml
+            } > docker-compose.yml.tmp
+            mv docker-compose.yml.tmp docker-compose.yml
 
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
               echo "🔵 Gateway Blue/Green Deployment..."
@@ -266,8 +276,8 @@ jobs:
               fi
               echo "Current: $CURRENT_COLOR / Target: $TARGET_COLOR"
 
-              sudo $DOCKER_COMPOSE pull gateway-$TARGET_COLOR
-              sudo $DOCKER_COMPOSE up -d gateway-$TARGET_COLOR
+              run_compose "pull gateway-$TARGET_COLOR"
+              run_compose "up -d gateway-$TARGET_COLOR"
 
               echo "Waiting for Health Check..."
               for i in {1..12}; do
@@ -275,50 +285,61 @@ jobs:
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
                 fi
+                # ⭐️ unhealthy 확정 시 즉시 실패 (기다리지 않음)
+                if [ "$status" = "unhealthy" ]; then
+                  echo "❌ Container entered unhealthy state. Aborting..."
+                  run_compose "stop gateway-$TARGET_COLOR"; exit 1
+                fi
                 if [ "$i" -eq 12 ]; then
-                  echo "❌ Health Check Failed! Aborting..."
-                  sudo $DOCKER_COMPOSE stop gateway-$TARGET_COLOR; exit 1
+                  echo "❌ Health Check Timed Out. Aborting..."
+                  run_compose "stop gateway-$TARGET_COLOR"; exit 1
                 fi
                 echo "Checking... ($i/12)"; sleep 5
               done
 
               echo "Switching Traffic to $TARGET_COLOR..."
+              # ⭐️ nginx conf 교체 전 현재 설정 백업
+              cp ./nginx/conf.d/default.conf ./nginx/conf.d/default.conf.bak
               render_nginx_conf "gateway-$TARGET_COLOR"
 
-              # ⭐️ nginx -t로 설정 검증 후 reload
               if sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
+                # ⭐️ nginx -t 실패 시 백업으로 롤백
                 if ! sudo docker exec nginx nginx -t; then
-                  echo "❌ Nginx config test failed. Aborting before traffic cutover."
+                  echo "⬅️ Nginx config test failed. Rolling back..."
+                  cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
                   exit 1
                 fi
                 sudo docker exec nginx nginx -s reload
               else
-                sudo $DOCKER_COMPOSE up -d nginx
+                run_compose "up -d nginx"
               fi
 
               echo "Stopping Old Version ($CURRENT_COLOR)..."
-              sudo $DOCKER_COMPOSE stop gateway-$CURRENT_COLOR
+              run_compose "stop gateway-$CURRENT_COLOR"
 
             else
               echo "🟢 Standard Deployment for $SERVICE_NAME..."
-              sudo $DOCKER_COMPOSE pull $SERVICE_NAME
-              sudo $DOCKER_COMPOSE up -d $SERVICE_NAME --remove-orphans
+              run_compose "pull $SERVICE_NAME"
+              run_compose "up -d --remove-orphans $SERVICE_NAME"
 
-              # ⭐️ api-server / auth-server 헬스체크 대기 로직 추가
               echo "Waiting for Health Check..."
               for i in {1..12}; do
                 status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$SERVICE_NAME" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
                 fi
+                # ⭐️ unhealthy 확정 시 즉시 실패
+                if [ "$status" = "unhealthy" ]; then
+                  echo "❌ Container entered unhealthy state. Aborting..."; exit 1
+                fi
                 if [ "$i" -eq 12 ]; then
-                  echo "❌ Health Check Failed! Aborting..."; exit 1
+                  echo "❌ Health Check Timed Out. Aborting..."; exit 1
                 fi
                 echo "Checking... ($i/12)"; sleep 5
               done
 
               if ! sudo docker ps --format '{{.Names}}' | grep -q "nginx"; then
-                sudo $DOCKER_COMPOSE up -d nginx
+                run_compose "up -d nginx"
               fi
             fi
 
