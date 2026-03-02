@@ -18,7 +18,7 @@ scrape_configs:
   # [중요] 스프링 부트 앱 모니터링 (운영용)
   - job_name: 'spring-actuator'
     metrics_path: '/actuator/prometheus'
-    scrape_interval: 5s
+    scrape_interval: 15s
     static_configs:
       # [수정] 컨테이너 이름 직접 명시 (Blue/Green 모두 포함)
       - targets: ['gateway-blue:8080', 'gateway-green:8080', 'api-server:8080', 'auth-server:9000']
