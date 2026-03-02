@@ -36,7 +36,7 @@ jobs:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
-          timeout: 300s
+          timeout: 420s
           envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
           script: |
             set -euo pipefail
@@ -81,9 +81,6 @@ jobs:
               [ "$(sudo docker ps --filter name=^nginx$ --format '{{.Names}}')" = "nginx" ]
             }
 
-            # ✅ 변경 1: nginx 신규 기동 검증 공통 함수로 추출
-            # gateway/api/auth 두 분기에서 모두 재사용
-            # 기동 후 running 상태를 직접 확인해 crash 즉시 감지
             start_and_verify_nginx() {
               run_compose up -d nginx
               echo "Waiting for nginx to start..."
@@ -301,7 +298,8 @@ jobs:
               run_compose up -d "gateway-$TARGET_COLOR"
 
               echo "Waiting for Health Check..."
-              for i in {1..12}; do
+              # ✅ 18 × 5s = 90초 (start_period 30s 고려 여유 확보)
+              for i in {1..18}; do
                 status="$(sudo docker inspect --format='{{.State.Health.Status}}' "gateway-$TARGET_COLOR" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
@@ -310,11 +308,11 @@ jobs:
                   echo "❌ Container entered unhealthy state. Aborting..."
                   run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
-                if [ "$i" -eq 12 ]; then
+                if [ "$i" -eq 18 ]; then
                   echo "❌ Health Check Timed Out. Aborting..."
                   run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
-                echo "Checking... ($i/12)"; sleep 5
+                echo "Checking... ($i/18)"; sleep 5
               done
 
               echo "Switching Traffic to $TARGET_COLOR..."
@@ -329,7 +327,6 @@ jobs:
                 fi
                 sudo docker exec nginx nginx -s reload
               else
-                # ✅ 공통 함수 사용 (gateway 분기)
                 if ! start_and_verify_nginx; then
                   cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
                   exit 1
@@ -345,11 +342,8 @@ jobs:
               run_compose pull "$SERVICE_NAME"
               run_compose up -d --remove-orphans "$SERVICE_NAME"
 
-              # ✅ 변경 2: api/auth 헬스체크 대기 시간 연장
-              # start_period(30s) + interval(30s) × retries(3) = 최소 120초 필요
-              # 기존: 12 × 5s = 60초 → 오탐 타임아웃 가능
-              # 변경: 24 × 10s = 240초 → 충분한 여유
               echo "Waiting for Health Check..."
+              # 24 × 10s = 240초 (start_period 30s + interval 30s × retries 3 = 120초 기준)
               for i in {1..24}; do
                 status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$SERVICE_NAME" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
@@ -364,9 +358,6 @@ jobs:
                 echo "Checking... ($i/24)"; sleep 10
               done
 
-              # ✅ 변경 3: api/auth 분기 nginx 신규 기동 시에도 검증 추가
-              # 기존: up -d 후 바로 성공 처리 → nginx crash 감지 불가
-              # 변경: start_and_verify_nginx() 함수로 running 상태 확인
               if ! is_nginx_running; then
                 if ! start_and_verify_nginx; then
                   exit 1
