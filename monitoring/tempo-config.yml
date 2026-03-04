@@ -19,17 +19,15 @@ compactor:
   compaction:
     compaction_window: 1h
     max_block_bytes: 100_000_000
-    block_retention: 1h
-    compacted_block_retention: 10m
+    block_retention: 72h          # 3일 보관 권장
+    compacted_block_retention: 1h
 
 storage:
   trace:
-    backend: local                     # 로컬 파일시스템 사용
-    # block 섹션 전체 삭제 (오류 원인)
     wal:
-      path: /tmp/tempo/wal             # 임시 데이터 경로
+      path: /var/lib/tempo/wal
     local:
-      path: /tmp/tempo/blocks          # 영구 데이터 경로
+      path: /var/lib/tempo/blocks
     pool:
       max_workers: 100
       queue_depth: 10000

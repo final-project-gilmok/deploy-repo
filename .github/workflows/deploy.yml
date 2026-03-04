@@ -122,6 +122,16 @@ jobs:
               } > ./nginx/conf.d/default.conf
             }
 
+            # ✅ healthcheck test 라인 공통화 (연산자 우선순위 이슈 해결)
+            # - wget 있으면 wget 사용
+            # - 없으면 curl 있으면 curl 사용
+            # - 둘 다 없으면 실패
+            hc_cmd() {
+              local url="$1"
+              printf '    healthcheck:\n'
+              printf '      test: ["CMD-SHELL", "if command -v wget >/dev/null 2>&1; then wget -q --spider %s; elif command -v curl >/dev/null 2>&1; then curl -fsS %s >/dev/null; else exit 1; fi"]\n' "$url" "$url"
+            }
+
             ACTIVE_GATEWAY="gateway-blue"
             if [ -f ./nginx/conf.d/default.conf ] && grep -q "server gateway-green:8080;" ./nginx/conf.d/default.conf; then
               ACTIVE_GATEWAY="gateway-green"
@@ -207,10 +217,13 @@ jobs:
               printf '    restart: always\n'
               printf '    networks:\n'
               printf '      - msa-network\n\n'
+
               for COLOR in blue green; do
                 printf '  gateway-%s:\n' "$COLOR"
                 printf '    image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}\n'
                 printf '    container_name: gateway-%s\n' "$COLOR"
+                printf '    expose:\n'
+                printf '      - "8080"\n'
                 printf '    environment:\n'
                 printf '      - SERVER_PORT=8080\n'
                 printf '      - SPRING_PROFILES_ACTIVE=prod\n'
@@ -228,13 +241,15 @@ jobs:
                 printf '      - "host.docker.internal:host-gateway"\n'
                 printf '    networks:\n'
                 printf '      - msa-network\n'
-                printf '    healthcheck:\n'
-                printf '      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]\n'
+
+                # ✅ 공통 healthcheck 적용 (gateway는 interval 10s, timeout 5s 유지)
+                hc_cmd "http://localhost:8080/actuator/health"
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
                 printf '      retries: 3\n'
                 printf '      start_period: 30s\n\n'
               done
+
               printf '  api-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/api-repo:${API_TAG:-latest}\n'
               printf '    container_name: api-server\n'
@@ -253,12 +268,14 @@ jobs:
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
-              printf '    healthcheck:\n'
-              printf '      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]\n'
+
+              # ✅ 공통 healthcheck 적용 (api는 interval 30s, timeout 10s 유지)
+              hc_cmd "http://localhost:8080/actuator/health"
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
               printf '      start_period: 30s\n\n'
+
               printf '  auth-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}\n'
               printf '    container_name: auth-server\n'
@@ -277,12 +294,14 @@ jobs:
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
-              printf '    healthcheck:\n'
-              printf '      test: ["CMD", "curl", "-f", "http://localhost:9000/actuator/health"]\n'
+
+              # ✅ 공통 healthcheck 적용 (auth는 9000 포트)
+              hc_cmd "http://localhost:9000/actuator/health"
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
               printf '      start_period: 30s\n\n'
+
               printf 'networks:\n'
               printf '  msa-network:\n'
               printf '    external: true\n'

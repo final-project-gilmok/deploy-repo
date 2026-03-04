@@ -20,5 +20,5 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     scrape_interval: 5s
     static_configs:
-      # [수정] 8082(cAdvisor) 제거. 스프링 앱만 남김.
+      # 로컬에서 돌릴때 본인의 아이피주소로 변경하고 테스트하기
       - targets: ['host.docker.internal:8080', 'host.docker.internal:8081', 'host.docker.internal:9000']

@@ -111,7 +111,7 @@ services:
     command: [ "-config.file=/etc/tempo.yml" ]
     volumes:
       - ./tempo-config.yml:/etc/tempo.yml
-      - tempo-data:/tmp/tempo
+      - tempo-data:/var/lib/tempo  # ✅ /tmp/tempo → /var/lib/tempo
     # ⭐️ [리뷰 4 반영] ports -> expose (보안)
     expose:
       - "3200" # Tempo HTTP API
