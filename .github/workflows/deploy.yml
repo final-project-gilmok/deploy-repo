@@ -126,7 +126,7 @@ jobs:
                 done
 
                 # Actuator 화이트리스트 (외부 차단)
-                printf '  location /actuator/ {\n'
+                printf '  location ~ ^/actuator(/|$) {\n'
                 printf '    allow 127.0.0.1;\n'
                 printf '    allow 172.16.0.0/12;\n'
                 printf '    deny all;\n'
