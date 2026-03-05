@@ -115,8 +115,8 @@ jobs:
                 printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
                 printf '  }\n\n'
 
-                # API 경로 → Gateway
-                for path in /admin/ /users/ /auth/ /events/ /queue/ /reservations/; do
+                # ✅ API 경로 → Gateway (trailing slash 있는 버전 + 없는 버전 둘 다)
+                for path in /admin /admin/ /users /users/ /auth /auth/ /events /events/ /queue /queue/ /reservations /reservations/; do
                   printf '  location %s {\n' "$path"
                   printf '    proxy_pass http://gateway_backend;\n'
                   printf '    proxy_set_header Host $host;\n'
@@ -155,7 +155,6 @@ jobs:
               ACTIVE_GATEWAY="gateway-green"
             fi
 
-            # ✅ 핵심 수정: frontend proxy_pass 존재 여부로 체크
             if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "proxy_pass http://frontend" ./nginx/conf.d/default.conf; then
               echo "⚙️ Creating Nginx config for $ACTIVE_GATEWAY..."
               render_nginx_conf "$ACTIVE_GATEWAY"
@@ -390,12 +389,20 @@ jobs:
 
             else
               echo "🟢 Standard Deployment for $SERVICE_NAME..."
-              run_compose pull "$SERVICE_NAME"
-              run_compose up -d --remove-orphans "$SERVICE_NAME"
+
+              # ✅ SERVICE_NAME → docker-compose 서비스 키 변환
+              if [[ "$SERVICE_NAME" == "frontend-server" ]]; then
+                COMPOSE_SERVICE="frontend"
+              else
+                COMPOSE_SERVICE="$SERVICE_NAME"
+              fi
+
+              run_compose pull "$COMPOSE_SERVICE"
+              run_compose up -d --remove-orphans "$COMPOSE_SERVICE"
 
               echo "Waiting for Health Check..."
               for i in {1..24}; do
-                status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$SERVICE_NAME" 2>/dev/null || echo "starting")"
+                status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$COMPOSE_SERVICE" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
                 fi
