@@ -45,7 +45,7 @@ jobs:
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
 
             case "$SERVICE_NAME" in
-              gateway-server|api-server|auth-server) ;;
+              gateway-server|api-server|auth-server|frontend-server) ;;
               *) echo "❌ Error: Invalid Service Name ($SERVICE_NAME). Not allowed."; exit 1 ;;
             esac
 
@@ -106,12 +106,34 @@ jobs:
                 printf '}\n\n'
                 printf 'server {\n'
                 printf '  listen 80;\n\n'
+
+                # 프론트 정적 파일 서빙
                 printf '  location / {\n'
-                printf '    proxy_pass http://gateway_backend;\n'
+                printf '    proxy_pass http://frontend:8080;\n'
                 printf '    proxy_set_header Host $host;\n'
                 printf '    proxy_set_header X-Real-IP $remote_addr;\n'
                 printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
                 printf '  }\n\n'
+
+                # API 경로 → Gateway
+                for path in /admin/ /users/ /auth/ /events/ /queue/ /reservations/; do
+                  printf '  location %s {\n' "$path"
+                  printf '    proxy_pass http://gateway_backend;\n'
+                  printf '    proxy_set_header Host $host;\n'
+                  printf '    proxy_set_header X-Real-IP $remote_addr;\n'
+                  printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+                  printf '  }\n\n'
+                done
+
+                # Actuator 화이트리스트 (외부 차단)
+                printf '  location /actuator/ {\n'
+                printf '    allow 127.0.0.1;\n'
+                printf '    allow 172.16.0.0/12;\n'
+                printf '    deny all;\n'
+                printf '    proxy_pass http://gateway_backend;\n'
+                printf '  }\n\n'
+
+                # Grafana 유지
                 printf '  location /grafana/ {\n'
                 printf '    proxy_pass http://grafana:3000/;\n'
                 printf '    proxy_set_header Host %s;\n' "$GRAFANA_DOMAIN"
@@ -122,10 +144,6 @@ jobs:
               } > ./nginx/conf.d/default.conf
             }
 
-            # ✅ healthcheck test 라인 공통화 (연산자 우선순위 이슈 해결)
-            # - wget 있으면 wget 사용
-            # - 없으면 curl 있으면 curl 사용
-            # - 둘 다 없으면 실패
             hc_cmd() {
               local url="$1"
               printf '    healthcheck:\n'
@@ -137,7 +155,8 @@ jobs:
               ACTIVE_GATEWAY="gateway-green"
             fi
 
-            if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "location /grafana/" ./nginx/conf.d/default.conf; then
+            # ✅ 핵심 수정: frontend proxy_pass 존재 여부로 체크
+            if [ ! -f ./nginx/conf.d/default.conf ] || ! grep -q "proxy_pass http://frontend" ./nginx/conf.d/default.conf; then
               echo "⚙️ Creating Nginx config for $ACTIVE_GATEWAY..."
               render_nginx_conf "$ACTIVE_GATEWAY"
             fi
@@ -150,15 +169,14 @@ jobs:
             EXISTING_GATEWAY_TAG=""
             EXISTING_API_TAG=""
             EXISTING_AUTH_TAG=""
+            EXISTING_FRONTEND_TAG=""
             if [ -f .env ]; then
               EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env | cut -d= -f2- || true)
               EXISTING_API_TAG=$(grep "^API_TAG=" .env | cut -d= -f2- || true)
               EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
+              EXISTING_FRONTEND_TAG=$(grep "^FRONTEND_TAG=" .env | cut -d= -f2- || true)
             fi
 
-            # ✅ umask 077 적용: .env.tmp 생성 시점부터 600 권한으로 생성
-            # 스크립트 중단 시에도 .env.tmp가 기본 umask(644)로 남지 않음
-            # umask는 현재 SSH 세션 내에서만 유효 → 서버 전체에 영향 없음
             umask 077
             printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" > .env.tmp
             printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env.tmp
@@ -174,14 +192,22 @@ jobs:
               printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env.tmp
               [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
               [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
+              [ -n "$EXISTING_FRONTEND_TAG" ] && printf '%s\n' "FRONTEND_TAG=$EXISTING_FRONTEND_TAG" >> .env.tmp
             elif [[ "$SERVICE_NAME" == "api-server" ]]; then
               [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
               printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env.tmp
               [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
+              [ -n "$EXISTING_FRONTEND_TAG" ] && printf '%s\n' "FRONTEND_TAG=$EXISTING_FRONTEND_TAG" >> .env.tmp
             elif [[ "$SERVICE_NAME" == "auth-server" ]]; then
               [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
               [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
               printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env.tmp
+              [ -n "$EXISTING_FRONTEND_TAG" ] && printf '%s\n' "FRONTEND_TAG=$EXISTING_FRONTEND_TAG" >> .env.tmp
+            elif [[ "$SERVICE_NAME" == "frontend-server" ]]; then
+              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
+              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
+              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
+              printf '%s\n' "FRONTEND_TAG=$IMAGE_TAG" >> .env.tmp
             fi
 
             mv .env.tmp .env
@@ -241,8 +267,6 @@ jobs:
                 printf '      - "host.docker.internal:host-gateway"\n'
                 printf '    networks:\n'
                 printf '      - msa-network\n'
-
-                # ✅ 공통 healthcheck 적용 (gateway는 interval 10s, timeout 5s 유지)
                 hc_cmd "http://localhost:8080/actuator/health"
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
@@ -268,8 +292,6 @@ jobs:
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
-
-              # ✅ 공통 healthcheck 적용 (api는 interval 30s, timeout 10s 유지)
               hc_cmd "http://localhost:8080/actuator/health"
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
@@ -294,13 +316,20 @@ jobs:
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
-
-              # ✅ 공통 healthcheck 적용 (auth는 9000 포트)
               hc_cmd "http://localhost:9000/actuator/health"
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
               printf '      start_period: 30s\n\n'
+
+              printf '  frontend:\n'
+              printf '    image: ghcr.io/final-project-gilmok/api-repo/frontend:${FRONTEND_TAG:-latest}\n'
+              printf '    container_name: frontend\n'
+              printf '    expose:\n'
+              printf '      - "8080"\n'
+              printf '    restart: always\n'
+              printf '    networks:\n'
+              printf '      - msa-network\n\n'
 
               printf 'networks:\n'
               printf '  msa-network:\n'
