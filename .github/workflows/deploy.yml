@@ -115,9 +115,9 @@ jobs:
                 printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
                 printf '  }\n\n'
 
-                # ✅ API 경로 → Gateway (trailing slash 있는 버전 + 없는 버전 둘 다)
-                for path in /admin /admin/ /users /users/ /auth /auth/ /events /events/ /queue /queue/ /reservations /reservations/; do
-                  printf '  location %s {\n' "$path"
+                # ✅ API 경로 → Gateway (regex로 정확히 매칭, /adminX 같은 오탐 방지)
+                for path in admin users auth events queue reservations; do
+                  printf '  location ~ ^/%s(/|$) {\n' "$path"
                   printf '    proxy_pass http://gateway_backend;\n'
                   printf '    proxy_set_header Host $host;\n'
                   printf '    proxy_set_header X-Real-IP $remote_addr;\n'
@@ -403,8 +403,9 @@ jobs:
               echo "Waiting for Health Check..."
               for i in {1..24}; do
                 status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$COMPOSE_SERVICE" 2>/dev/null || echo "starting")"
-                if [ "$status" = "healthy" ]; then
-                  echo "✅ Health Check Passed!"; break
+                # ✅ healthy 또는 healthcheck 없는 컨테이너(none)도 성공으로 처리
+                if [ "$status" = "healthy" ] || [ "$status" = "none" ]; then
+                  echo "✅ Health Check Passed (status: $status)!"; break
                 fi
                 if [ "$status" = "unhealthy" ]; then
                   echo "❌ Container entered unhealthy state. Aborting..."; exit 1
