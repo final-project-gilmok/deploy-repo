@@ -32,18 +32,21 @@ jobs:
           REDIS_HOST: ${{ secrets.REDIS_HOST }}
           REDIS_PORT: ${{ secrets.REDIS_PORT }}
           REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}       # ✅ 추가
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}  # ✅ 추가
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_PROJECT_ID: ${{ secrets.GEMINI_PROJECT_ID }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 420s
-          envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,GHCR_TOKEN,GHCR_USERNAME  # ✅ 추가
+          envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -euo pipefail
 
-            # ✅ GHCR 로그인 추가
+            # ✅ GHCR 로그인
             echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
@@ -62,6 +65,7 @@ jobs:
               "GRAFANA_PASSWORD" "GRAFANA_DOMAIN" "FRONTEND_URL"
               "DB_URL" "DB_USERNAME" "DB_PASSWORD"
               "REDIS_HOST" "REDIS_PORT" "REDIS_PASSWORD"
+              "JWT_SECRET" "GEMINI_API_KEY" "GEMINI_PROJECT_ID"
             )
             for VAR_NAME in "${REQUIRED_VARS[@]}"; do
               if [[ -z "${!VAR_NAME}" ]]; then
@@ -187,6 +191,9 @@ jobs:
             printf '%s\n' "REDIS_HOST=$REDIS_HOST" >> .env.tmp
             printf '%s\n' "REDIS_PORT=$REDIS_PORT" >> .env.tmp
             printf '%s\n' "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env.tmp
+            printf '%s\n' "JWT_SECRET=$JWT_SECRET" >> .env.tmp
+            printf '%s\n' "GEMINI_API_KEY=$GEMINI_API_KEY" >> .env.tmp
+            printf '%s\n' "GEMINI_PROJECT_ID=$GEMINI_PROJECT_ID" >> .env.tmp
 
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
               printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env.tmp
@@ -263,6 +270,7 @@ jobs:
                 printf '      - SPRING_DATA_REDIS_PORT=${REDIS_PORT}\n'
                 printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
                 printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
+                printf '      - APP_JWT_SECRET=${JWT_SECRET}\n'
                 printf '    extra_hosts:\n'
                 printf '      - "host.docker.internal:host-gateway"\n'
                 printf '    networks:\n'
@@ -290,6 +298,9 @@ jobs:
               printf '      - SPRING_DATA_REDIS_PORT=${REDIS_PORT}\n'
               printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
+              printf '      - APP_JWT_SECRET=${JWT_SECRET}\n'
+              printf '      - SPRING_AI_GOOGLE_GENAI_API_KEY=${GEMINI_API_KEY}\n'
+              printf '      - SPRING_AI_GOOGLE_GENAI_PROJECT_ID=${GEMINI_PROJECT_ID}\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
               hc_cmd "http://localhost:8080/actuator/health"
@@ -314,6 +325,7 @@ jobs:
               printf '      - SPRING_DATA_REDIS_PORT=${REDIS_PORT}\n'
               printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
               printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
+              printf '      - APP_JWT_SECRET=${JWT_SECRET}\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
               hc_cmd "http://localhost:9000/actuator/health"
