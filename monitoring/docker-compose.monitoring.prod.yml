@@ -41,9 +41,8 @@ services:
 
   # [3] cAdvisor: 컨테이너 리소스 감시 (신규 레지스트리 및 버전 고정)
   cadvisor:
-    image: ghcr.io/google/cadvisor:v0.47.0
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: cadvisor
-    # ⭐️ [리뷰 4 반영] ports -> expose (보안)
     expose:
       - "8080"
     volumes:
@@ -58,6 +57,7 @@ services:
     privileged: true
     devices:
       - /dev/kmsg
+
 
   # [4] Node Exporter: 호스트 리소스 감시 (버전 고정)
   node-exporter:

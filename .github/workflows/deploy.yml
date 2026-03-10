@@ -32,14 +32,19 @@ jobs:
           REDIS_HOST: ${{ secrets.REDIS_HOST }}
           REDIS_PORT: ${{ secrets.REDIS_PORT }}
           REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}       # ✅ 추가
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}  # ✅ 추가
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 420s
-          envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD
+          envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,GHCR_TOKEN,GHCR_USERNAME  # ✅ 추가
           script: |
             set -euo pipefail
+
+            # ✅ GHCR 로그인 추가
+            echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
@@ -107,7 +112,6 @@ jobs:
                 printf 'server {\n'
                 printf '  listen 80;\n\n'
 
-                # 프론트 정적 파일 서빙
                 printf '  location / {\n'
                 printf '    proxy_pass http://frontend:8080;\n'
                 printf '    proxy_set_header Host $host;\n'
@@ -115,7 +119,6 @@ jobs:
                 printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
                 printf '  }\n\n'
 
-                # ✅ API 경로 → Gateway (regex로 정확히 매칭, /adminX 같은 오탐 방지)
                 for path in admin users auth events queue reservations; do
                   printf '  location ~ ^/%s(/|$) {\n' "$path"
                   printf '    proxy_pass http://gateway_backend;\n'
@@ -125,7 +128,6 @@ jobs:
                   printf '  }\n\n'
                 done
 
-                # Actuator 화이트리스트 (외부 차단)
                 printf '  location ~ ^/actuator(/|$) {\n'
                 printf '    allow 127.0.0.1;\n'
                 printf '    allow 172.16.0.0/12;\n'
@@ -133,7 +135,6 @@ jobs:
                 printf '    proxy_pass http://gateway_backend;\n'
                 printf '  }\n\n'
 
-                # Grafana 유지
                 printf '  location /grafana/ {\n'
                 printf '    proxy_pass http://grafana:3000/;\n'
                 printf '    proxy_set_header Host %s;\n' "$GRAFANA_DOMAIN"
@@ -390,7 +391,6 @@ jobs:
             else
               echo "🟢 Standard Deployment for $SERVICE_NAME..."
 
-              # ✅ SERVICE_NAME → docker-compose 서비스 키 변환
               if [[ "$SERVICE_NAME" == "frontend-server" ]]; then
                 COMPOSE_SERVICE="frontend"
               else
@@ -403,7 +403,6 @@ jobs:
               echo "Waiting for Health Check..."
               for i in {1..24}; do
                 status="$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$COMPOSE_SERVICE" 2>/dev/null || echo "starting")"
-                # ✅ healthy 또는 healthcheck 없는 컨테이너(none)도 성공으로 처리
                 if [ "$status" = "healthy" ] || [ "$status" = "none" ]; then
                   echo "✅ Health Check Passed (status: $status)!"; break
                 fi
