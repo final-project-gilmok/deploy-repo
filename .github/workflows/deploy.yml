@@ -66,6 +66,7 @@ jobs:
               "DB_URL" "DB_USERNAME" "DB_PASSWORD"
               "REDIS_HOST" "REDIS_PORT" "REDIS_PASSWORD"
               "JWT_SECRET" "GEMINI_API_KEY" "GEMINI_PROJECT_ID"
+              "GHCR_TOKEN" "GHCR_USERNAME"
             )
             for VAR_NAME in "${REQUIRED_VARS[@]}"; do
               if [[ -z "${!VAR_NAME}" ]]; then
