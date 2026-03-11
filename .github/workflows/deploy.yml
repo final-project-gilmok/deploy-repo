@@ -35,14 +35,19 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_PROJECT_ID: ${{ secrets.GEMINI_PROJECT_ID }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 420s
-          envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID
+          envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -euo pipefail
+
+            # ✅ GHCR 로그인
+            echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
             IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
@@ -61,6 +66,7 @@ jobs:
               "DB_URL" "DB_USERNAME" "DB_PASSWORD"
               "REDIS_HOST" "REDIS_PORT" "REDIS_PASSWORD"
               "JWT_SECRET" "GEMINI_API_KEY" "GEMINI_PROJECT_ID"
+              "GHCR_TOKEN" "GHCR_USERNAME"
             )
             for VAR_NAME in "${REQUIRED_VARS[@]}"; do
               if [[ -z "${!VAR_NAME}" ]]; then
