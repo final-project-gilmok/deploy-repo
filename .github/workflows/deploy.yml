@@ -11,15 +11,6 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Copy Monitoring Configs to Server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.OCI_HOST }}
-          username: ${{ secrets.OCI_USERNAME }}
-          key: ${{ secrets.OCI_KEY }}
-          source: "monitoring/"
-          target: "~/app"
-
       - name: SSH Remote Commands
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -46,7 +37,6 @@ jobs:
           script: |
             set -euo pipefail
 
-            # ✅ GHCR 로그인
             echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
@@ -221,23 +211,8 @@ jobs:
             mv .env.tmp .env
             chmod 600 .env
 
-            echo "📊 Starting Monitoring System..."
-            if [ -d "./monitoring" ]; then
-              cd monitoring
-              ln -sf ../.env .env
-              if [ -f "docker-compose.monitoring.prod.yml" ]; then
-                run_compose -f docker-compose.monitoring.prod.yml up -d || \
-                  echo "⚠️ Warning: Monitoring startup failed. Continuing deployment..."
-              elif [ -f "docker-compose.monitoring.yml" ]; then
-                run_compose -f docker-compose.monitoring.yml up -d || \
-                  echo "⚠️ Warning: Monitoring startup failed. Continuing deployment..."
-              else
-                echo "⚠️ Warning: monitoring compose file not found. Skipping monitoring startup."
-              fi
-              cd ..
-            else
-              echo "⚠️ Warning: monitoring folder not found. Skipping."
-            fi
+            # ✅ 모니터링 완전 스킵
+            echo "📊 Monitoring skipped for deployment test."
 
             {
               printf 'services:\n'
@@ -370,10 +345,16 @@ jobs:
                 fi
                 if [ "$status" = "unhealthy" ]; then
                   echo "❌ Container entered unhealthy state. Aborting..."
+                  echo "====== gateway-$TARGET_COLOR LOGS ======"
+                  sudo docker logs "gateway-$TARGET_COLOR" --tail 50
+                  echo "====== END OF LOGS ======"
                   run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
                 if [ "$i" -eq 18 ]; then
                   echo "❌ Health Check Timed Out. Aborting..."
+                  echo "====== gateway-$TARGET_COLOR LOGS ======"
+                  sudo docker logs "gateway-$TARGET_COLOR" --tail 50
+                  echo "====== END OF LOGS ======"
                   run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
                 echo "Checking... ($i/18)"; sleep 5
@@ -420,10 +401,18 @@ jobs:
                   echo "✅ Health Check Passed (status: $status)!"; break
                 fi
                 if [ "$status" = "unhealthy" ]; then
-                  echo "❌ Container entered unhealthy state. Aborting..."; exit 1
+                  echo "❌ Container entered unhealthy state. Aborting..."
+                  echo "====== $COMPOSE_SERVICE LOGS ======"
+                  sudo docker logs "$COMPOSE_SERVICE" --tail 50
+                  echo "====== END OF LOGS ======"
+                  exit 1
                 fi
                 if [ "$i" -eq 24 ]; then
-                  echo "❌ Health Check Timed Out. Aborting..."; exit 1
+                  echo "❌ Health Check Timed Out. Aborting..."
+                  echo "====== $COMPOSE_SERVICE LOGS ======"
+                  sudo docker logs "$COMPOSE_SERVICE" --tail 50
+                  echo "====== END OF LOGS ======"
+                  exit 1
                 fi
                 echo "Checking... ($i/24)"; sleep 10
               done
