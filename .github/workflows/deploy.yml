@@ -14,8 +14,6 @@ jobs:
       - name: SSH Remote Commands
         uses: appleboy/ssh-action@v1.0.3
         env:
-          GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
-          GRAFANA_DOMAIN: ${{ secrets.GRAFANA_DOMAIN }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
           DB_URL: ${{ secrets.DB_URL }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
@@ -33,7 +31,7 @@ jobs:
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 420s
-          envs: GRAFANA_PASSWORD,GRAFANA_DOMAIN,FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
+          envs: FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -euo pipefail
 
@@ -52,7 +50,7 @@ jobs:
             fi
 
             REQUIRED_VARS=(
-              "GRAFANA_PASSWORD" "GRAFANA_DOMAIN" "FRONTEND_URL"
+              "FRONTEND_URL"
               "DB_URL" "DB_USERNAME" "DB_PASSWORD"
               "REDIS_HOST" "REDIS_PORT" "REDIS_PASSWORD"
               "JWT_SECRET" "GEMINI_API_KEY" "GEMINI_PROJECT_ID"
@@ -128,13 +126,6 @@ jobs:
                 printf '    allow 172.16.0.0/12;\n'
                 printf '    deny all;\n'
                 printf '    proxy_pass http://gateway_backend;\n'
-                printf '  }\n\n'
-
-                printf '  location /grafana/ {\n'
-                printf '    proxy_pass http://grafana:3000/;\n'
-                printf '    proxy_set_header Host %s;\n' "$GRAFANA_DOMAIN"
-                printf '    proxy_set_header X-Real-IP $remote_addr;\n'
-                printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
                 printf '  }\n'
                 printf '}\n'
               } > ./nginx/conf.d/default.conf
@@ -173,9 +164,7 @@ jobs:
             fi
 
             umask 077
-            printf '%s\n' "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" > .env.tmp
-            printf '%s\n' "GRAFANA_DOMAIN=$GRAFANA_DOMAIN" >> .env.tmp
-            printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" >> .env.tmp
+            printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" > .env.tmp
             printf '%s\n' "DB_URL=$DB_URL" >> .env.tmp
             printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env.tmp
             printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env.tmp
@@ -211,7 +200,6 @@ jobs:
             mv .env.tmp .env
             chmod 600 .env
 
-            # ✅ 모니터링 완전 스킵
             echo "📊 Monitoring skipped for deployment test."
 
             {
