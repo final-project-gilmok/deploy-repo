@@ -54,11 +54,9 @@ jobs:
             fi
 
             umask 077
-            cat > .env << EOF
-            GRAFANA_PASSWORD=${GRAFANA_PASSWORD}
-            GRAFANA_DOMAIN=${GRAFANA_DOMAIN}
-            APP_SERVER_IP=146.56.104.192
-            EOF
+            printf '%s\n' "GRAFANA_PASSWORD=${GRAFANA_PASSWORD}" > .env
+            printf '%s\n' "GRAFANA_DOMAIN=${GRAFANA_DOMAIN}" >> .env
+            printf '%s\n' "APP_SERVER_IP=146.56.104.192" >> .env
             chmod 600 .env
 
             echo "📊 Starting monitoring stack..."
