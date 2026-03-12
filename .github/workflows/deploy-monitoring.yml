@@ -61,7 +61,7 @@ jobs:
 
             echo "📊 Starting monitoring stack..."
             sudo $DOCKER_COMPOSE -f docker-compose.monitoring.prod.yml pull
-            sudo $DOCKER_COMPOSE -f docker-compose.monitoring.prod.yml up -d --remove-orphans
+            sudo $DOCKER_COMPOSE -f docker-compose.monitoring.prod.yml up -d --remove-orphans --force-recreate
 
             echo "Waiting for services to be healthy..."
             sleep 10
