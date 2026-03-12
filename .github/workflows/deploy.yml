@@ -24,12 +24,13 @@ jobs:
           GEMINI_PROJECT_ID: ${{ secrets.GEMINI_PROJECT_ID }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 420s
-          envs: FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_URL,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
+          envs: FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_URL,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME,MONITORING_HOST
           script: |
             set -euo pipefail
             trap 'echo "❌ 실패한 줄: $LINENO, 명령어: $BASH_COMMAND"' ERR
@@ -54,6 +55,7 @@ jobs:
               "REDIS_URL"
               "JWT_SECRET" "GEMINI_API_KEY" "GEMINI_PROJECT_ID"
               "GHCR_TOKEN" "GHCR_USERNAME"
+              "MONITORING_HOST"
             )
             for VAR_NAME in "${REQUIRED_VARS[@]}"; do
               if [[ -z "${!VAR_NAME}" ]]; then
@@ -108,7 +110,7 @@ jobs:
                 printf '    return 301 /grafana/;\n'
                 printf '  }\n\n'
                 printf '  location /grafana/ {\n'
-                printf '    proxy_pass http://158.180.78.71:3000/grafana/;\n'
+                printf '    proxy_pass http://%s:3000/grafana/;\n' "$MONITORING_HOST"
                 printf '    proxy_http_version 1.1;\n'
                 printf '    proxy_set_header Upgrade $http_upgrade;\n'
                 printf '    proxy_set_header Connection "upgrade";\n'
@@ -136,7 +138,7 @@ jobs:
                 printf '  location ~ ^/actuator(/|$) {\n'
                 printf '    allow 127.0.0.1;\n'
                 printf '    allow 172.16.0.0/12;\n'
-                printf '    allow 158.180.78.71;\n'
+                printf '    allow %s;\n' "$MONITORING_HOST"
                 printf '    deny all;\n'
                 printf '    proxy_pass http://gateway_backend;\n'
                 printf '  }\n'
