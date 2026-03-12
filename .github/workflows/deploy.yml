@@ -332,7 +332,7 @@ jobs:
               run_compose up -d "gateway-$TARGET_COLOR"
 
               echo "Waiting for Health Check..."
-              for i in {1..36}; do
+              for i in {1..72}; do
                 status="$(sudo docker inspect --format='{{.State.Health.Status}}' "gateway-$TARGET_COLOR" 2>/dev/null || echo "starting")"
                 if [ "$status" = "healthy" ]; then
                   echo "✅ Health Check Passed!"; break
@@ -344,14 +344,14 @@ jobs:
                   echo "====== END OF LOGS ======"
                   run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
-                if [ "$i" -eq 36 ]; then
+                if [ "$i" -eq 72 ]; then
                   echo "❌ Health Check Timed Out. Aborting..."
                   echo "====== gateway-$TARGET_COLOR LOGS ======"
                   sudo docker logs "gateway-$TARGET_COLOR" --tail 50
                   echo "====== END OF LOGS ======"
                   run_compose stop "gateway-$TARGET_COLOR"; exit 1
                 fi
-                echo "Checking... ($i/36)"; sleep 5
+                echo "Checking... ($i/72)"; sleep 5
               done
 
               echo "Switching Traffic to $TARGET_COLOR..."
