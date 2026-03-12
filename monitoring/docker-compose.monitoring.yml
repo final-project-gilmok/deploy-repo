@@ -38,43 +38,6 @@ services:
     depends_on:
       - prometheus
 
-  #  # [3] cAdvisor: 컨테이너 리소스 감시
-  #  cadvisor:
-  #    image: gcr.io/cadvisor/cadvisor:latest
-  #    container_name: cadvisor
-  #    ports:
-  #      - "8082:8080" # 호스트의 8082 포트를 사용 (내부 8080)
-  #    volumes:
-  #      - /:/rootfs:ro
-  #      - /var/run:/var/run:ro
-  #      - /sys:/sys:ro
-  #      - /var/lib/docker/:/var/lib/docker:ro
-  #      - /dev/disk/:/dev/disk:ro
-  #    networks:
-  #      - monitoring-net
-  #    restart: always
-  #    privileged: true
-  #    devices:
-  #      - /dev/kmsg
-  #
-  #  # [4] Node Exporter: 호스트 리소스 감시
-  #  node-exporter:
-  #    image: prom/node-exporter:latest
-  #    container_name: node-exporter
-  #    volumes:
-  #      - /proc:/host/proc:ro
-  #      - /sys:/host/sys:ro
-  #      - /:/rootfs:ro
-  #    command:
-  #      - '--path.procfs=/host/proc'
-  #      - '--path.sysfs=/host/sys'
-  #      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
-  #    ports:
-  #      - "9100:9100"
-  #    networks:
-  #      - monitoring-net
-  #    restart: always
-
   # [5] Loki: 로그 저장소
   loki:
     image: grafana/loki:2.9.0
