@@ -30,6 +30,8 @@ services:
       - GF_SERVER_DOMAIN=${GRAFANA_DOMAIN:?error_grafana_domain_missing}
       - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SECURITY_ALLOW_EMBEDDING=true      # 추가
+      - GF_SECURITY_COOKIE_SAMESITE=disabled  # 추가
     networks:
       - monitoring-network
     restart: always
