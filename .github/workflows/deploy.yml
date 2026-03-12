@@ -63,7 +63,7 @@ jobs:
             done
 
             echo "🚀 Start Deploy: $SERVICE_NAME (Tag: $IMAGE_TAG)"
-            mkdir -p ~/app/nginx/conf.d && cd ~/app
+            mkdir -p /home/ubuntu/app/nginx/conf.d && cd /home/ubuntu/app
 
             if command -v docker-compose &> /dev/null; then
               DOCKER_COMPOSE="docker-compose"
