@@ -245,7 +245,7 @@ jobs:
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
                 printf '      retries: 3\n'
-                printf '      start_period: 90s\n\n'
+                printf '      start_period: 360s\n\n'
               done
 
               printf '  api-server:\n'
