@@ -34,7 +34,8 @@ jobs:
           envs: FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -euo pipefail
-
+            trap 'echo "❌ 실패한 줄: $LINENO, 명령어: $BASH_COMMAND"' ERR
+            
             echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
