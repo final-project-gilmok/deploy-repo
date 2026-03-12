@@ -18,9 +18,7 @@ jobs:
           DB_URL: ${{ secrets.DB_URL }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          REDIS_HOST: ${{ secrets.REDIS_HOST }}
-          REDIS_PORT: ${{ secrets.REDIS_PORT }}
-          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_PROJECT_ID: ${{ secrets.GEMINI_PROJECT_ID }}
@@ -31,11 +29,11 @@ jobs:
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_KEY }}
           timeout: 420s
-          envs: FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_HOST,REDIS_PORT,REDIS_PASSWORD,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
+          envs: FRONTEND_URL,DB_URL,DB_USERNAME,DB_PASSWORD,REDIS_URL,JWT_SECRET,GEMINI_API_KEY,GEMINI_PROJECT_ID,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -euo pipefail
             trap 'echo "❌ 실패한 줄: $LINENO, 명령어: $BASH_COMMAND"' ERR
-            
+
             echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             SERVICE_NAME="${{ github.event.client_payload.service_name }}"
@@ -53,7 +51,7 @@ jobs:
             REQUIRED_VARS=(
               "FRONTEND_URL"
               "DB_URL" "DB_USERNAME" "DB_PASSWORD"
-              "REDIS_HOST" "REDIS_PORT" "REDIS_PASSWORD"
+              "REDIS_URL"
               "JWT_SECRET" "GEMINI_API_KEY" "GEMINI_PROJECT_ID"
               "GHCR_TOKEN" "GHCR_USERNAME"
             )
@@ -64,7 +62,7 @@ jobs:
             done
 
             echo "🚀 Start Deploy: $SERVICE_NAME (Tag: $IMAGE_TAG)"
-            mkdir -p /home/ubuntu/app/nginx/conf.d && cd /home/ubuntu/app
+            mkdir -p ~/app/nginx/conf.d && cd ~/app
 
             if command -v docker-compose &> /dev/null; then
               DOCKER_COMPOSE="docker-compose"
@@ -105,6 +103,16 @@ jobs:
                 printf '}\n\n'
                 printf 'server {\n'
                 printf '  listen 80;\n\n'
+
+                printf '  location /grafana {\n'
+                printf '    return 301 /grafana/;\n'
+                printf '  }\n\n'
+                printf '  location /grafana/ {\n'
+                printf '    proxy_pass http://158.180.78.71:3000/grafana/;\n'
+                printf '    proxy_set_header Host $host;\n'
+                printf '    proxy_set_header X-Real-IP $remote_addr;\n'
+                printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+                printf '  }\n\n'
 
                 printf '  location / {\n'
                 printf '    proxy_pass http://frontend:8080;\n'
@@ -170,9 +178,7 @@ jobs:
             printf '%s\n' "DB_URL=$DB_URL" >> .env.tmp
             printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env.tmp
             printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env.tmp
-            printf '%s\n' "REDIS_HOST=$REDIS_HOST" >> .env.tmp
-            printf '%s\n' "REDIS_PORT=$REDIS_PORT" >> .env.tmp
-            printf '%s\n' "REDIS_PASSWORD=$REDIS_PASSWORD" >> .env.tmp
+            printf '%s\n' "REDIS_URL=$REDIS_URL" >> .env.tmp
             printf '%s\n' "JWT_SECRET=$JWT_SECRET" >> .env.tmp
             printf '%s\n' "GEMINI_API_KEY=$GEMINI_API_KEY" >> .env.tmp
             printf '%s\n' "GEMINI_PROJECT_ID=$GEMINI_PROJECT_ID" >> .env.tmp
@@ -231,10 +237,7 @@ jobs:
                 printf '      - SPRING_DATASOURCE_URL=${DB_URL}\n'
                 printf '      - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}\n'
                 printf '      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}\n'
-                printf '      - SPRING_DATA_REDIS_HOST=${REDIS_HOST}\n'
-                printf '      - SPRING_DATA_REDIS_PORT=${REDIS_PORT}\n'
-                printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
-                printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
+                printf '      - SPRING_DATA_REDIS_URL=${REDIS_URL}\n'
                 printf '      - APP_JWT_SECRET=${JWT_SECRET}\n'
                 printf '    extra_hosts:\n'
                 printf '      - "host.docker.internal:host-gateway"\n'
@@ -261,10 +264,7 @@ jobs:
               printf '      - SPRING_DATASOURCE_URL=${DB_URL}\n'
               printf '      - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}\n'
               printf '      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}\n'
-              printf '      - SPRING_DATA_REDIS_HOST=${REDIS_HOST}\n'
-              printf '      - SPRING_DATA_REDIS_PORT=${REDIS_PORT}\n'
-              printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
-              printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
+              printf '      - SPRING_DATA_REDIS_URL=${REDIS_URL}\n'
               printf '      - APP_JWT_SECRET=${JWT_SECRET}\n'
               printf '      - SPRING_AI_GOOGLE_GENAI_API_KEY=${GEMINI_API_KEY}\n'
               printf '      - SPRING_AI_GOOGLE_GENAI_PROJECT_ID=${GEMINI_PROJECT_ID}\n'
@@ -289,10 +289,7 @@ jobs:
               printf '      - SPRING_DATASOURCE_URL=${DB_URL}\n'
               printf '      - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}\n'
               printf '      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}\n'
-              printf '      - SPRING_DATA_REDIS_HOST=${REDIS_HOST}\n'
-              printf '      - SPRING_DATA_REDIS_PORT=${REDIS_PORT}\n'
-              printf '      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}\n'
-              printf '      - SPRING_DATA_REDIS_SSL_ENABLED=true\n'
+              printf '      - SPRING_DATA_REDIS_URL=${REDIS_URL}\n'
               printf '      - APP_JWT_SECRET=${JWT_SECRET}\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
@@ -363,7 +360,7 @@ jobs:
                   cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
                   exit 1
                 fi
-                sudo docker restart nginx
+                sudo docker exec nginx nginx -s reload
               else
                 if ! start_and_verify_nginx; then
                   cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
