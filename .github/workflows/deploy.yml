@@ -245,7 +245,7 @@ jobs:
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
                 printf '      retries: 3\n'
-                printf '      start_period: 30s\n\n'
+                printf '      start_period: 90s\n\n'
               done
 
               printf '  api-server:\n'
@@ -274,7 +274,7 @@ jobs:
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
-              printf '      start_period: 30s\n\n'
+              printf '      start_period: 90s\n\n'
 
               printf '  auth-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}\n'
@@ -300,7 +300,7 @@ jobs:
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
-              printf '      start_period: 30s\n\n'
+              printf '      start_period: 90s\n\n'
 
               printf '  frontend:\n'
               printf '    image: ghcr.io/final-project-gilmok/api-repo/frontend:${FRONTEND_TAG:-latest}\n'
