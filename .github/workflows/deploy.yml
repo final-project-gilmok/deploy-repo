@@ -172,41 +172,41 @@ jobs:
             EXISTING_AUTH_TAG=""
             EXISTING_FRONTEND_TAG=""
             if [ -f .env ]; then
-              EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env | cut -d= -f2- || true)
-              EXISTING_API_TAG=$(grep "^API_TAG=" .env | cut -d= -f2- || true)
-              EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | cut -d= -f2- || true)
-              EXISTING_FRONTEND_TAG=$(grep "^FRONTEND_TAG=" .env | cut -d= -f2- || true)
+              EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env | tail -1 | cut -d= -f2- || true)
+              EXISTING_API_TAG=$(grep "^API_TAG=" .env | tail -1 | cut -d= -f2- || true)
+              EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | tail -1 | cut -d= -f2- || true)
+              EXISTING_FRONTEND_TAG=$(grep "^FRONTEND_TAG=" .env | tail -1 | cut -d= -f2- || true)
             fi
 
-            printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" > .env.tmp
-            printf '%s\n' "DB_URL=$DB_URL" >> .env.tmp
-            printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env.tmp
-            printf '%s\n' "DB_PASSWORD=$DB_PASSWORD" >> .env.tmp
-            printf '%s\n' "REDIS_URL=$REDIS_URL" >> .env.tmp
-            printf '%s\n' "JWT_SECRET=$JWT_SECRET" >> .env.tmp
-            printf '%s\n' "GEMINI_API_KEY=$GEMINI_API_KEY" >> .env.tmp
-            printf '%s\n' "GEMINI_PROJECT_ID=$GEMINI_PROJECT_ID" >> .env.tmp
+            printf 'FRONTEND_URL=%s\n' "$FRONTEND_URL" > .env.tmp
+            printf 'DB_URL=%s\n' "$DB_URL" >> .env.tmp
+            printf 'DB_USERNAME=%s\n' "$DB_USERNAME" >> .env.tmp
+            printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD" >> .env.tmp
+            printf 'REDIS_URL=%s\n' "$REDIS_URL" >> .env.tmp
+            printf 'JWT_SECRET=%s\n' "$JWT_SECRET" >> .env.tmp
+            printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" >> .env.tmp
+            printf 'GEMINI_PROJECT_ID=%s\n' "$GEMINI_PROJECT_ID" >> .env.tmp
 
             if [[ "$SERVICE_NAME" == "gateway-server" ]]; then
-              printf '%s\n' "GATEWAY_TAG=$IMAGE_TAG" >> .env.tmp
-              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
-              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
-              [ -n "$EXISTING_FRONTEND_TAG" ] && printf '%s\n' "FRONTEND_TAG=$EXISTING_FRONTEND_TAG" >> .env.tmp
+              printf 'GATEWAY_TAG=%s\n' "$IMAGE_TAG" >> .env.tmp
+              [ -n "$EXISTING_API_TAG" ] && printf 'API_TAG=%s\n' "$EXISTING_API_TAG" >> .env.tmp
+              [ -n "$EXISTING_AUTH_TAG" ] && printf 'AUTH_TAG=%s\n' "$EXISTING_AUTH_TAG" >> .env.tmp
+              [ -n "$EXISTING_FRONTEND_TAG" ] && printf 'FRONTEND_TAG=%s\n' "$EXISTING_FRONTEND_TAG" >> .env.tmp
             elif [[ "$SERVICE_NAME" == "api-server" ]]; then
-              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
-              printf '%s\n' "API_TAG=$IMAGE_TAG" >> .env.tmp
-              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
-              [ -n "$EXISTING_FRONTEND_TAG" ] && printf '%s\n' "FRONTEND_TAG=$EXISTING_FRONTEND_TAG" >> .env.tmp
+              [ -n "$EXISTING_GATEWAY_TAG" ] && printf 'GATEWAY_TAG=%s\n' "$EXISTING_GATEWAY_TAG" >> .env.tmp
+              printf 'API_TAG=%s\n' "$IMAGE_TAG" >> .env.tmp
+              [ -n "$EXISTING_AUTH_TAG" ] && printf 'AUTH_TAG=%s\n' "$EXISTING_AUTH_TAG" >> .env.tmp
+              [ -n "$EXISTING_FRONTEND_TAG" ] && printf 'FRONTEND_TAG=%s\n' "$EXISTING_FRONTEND_TAG" >> .env.tmp
             elif [[ "$SERVICE_NAME" == "auth-server" ]]; then
-              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
-              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
-              printf '%s\n' "AUTH_TAG=$IMAGE_TAG" >> .env.tmp
-              [ -n "$EXISTING_FRONTEND_TAG" ] && printf '%s\n' "FRONTEND_TAG=$EXISTING_FRONTEND_TAG" >> .env.tmp
+              [ -n "$EXISTING_GATEWAY_TAG" ] && printf 'GATEWAY_TAG=%s\n' "$EXISTING_GATEWAY_TAG" >> .env.tmp
+              [ -n "$EXISTING_API_TAG" ] && printf 'API_TAG=%s\n' "$EXISTING_API_TAG" >> .env.tmp
+              printf 'AUTH_TAG=%s\n' "$IMAGE_TAG" >> .env.tmp
+              [ -n "$EXISTING_FRONTEND_TAG" ] && printf 'FRONTEND_TAG=%s\n' "$EXISTING_FRONTEND_TAG" >> .env.tmp
             elif [[ "$SERVICE_NAME" == "frontend-server" ]]; then
-              [ -n "$EXISTING_GATEWAY_TAG" ] && printf '%s\n' "GATEWAY_TAG=$EXISTING_GATEWAY_TAG" >> .env.tmp
-              [ -n "$EXISTING_API_TAG" ] && printf '%s\n' "API_TAG=$EXISTING_API_TAG" >> .env.tmp
-              [ -n "$EXISTING_AUTH_TAG" ] && printf '%s\n' "AUTH_TAG=$EXISTING_AUTH_TAG" >> .env.tmp
-              printf '%s\n' "FRONTEND_TAG=$IMAGE_TAG" >> .env.tmp
+              [ -n "$EXISTING_GATEWAY_TAG" ] && printf 'GATEWAY_TAG=%s\n' "$EXISTING_GATEWAY_TAG" >> .env.tmp
+              [ -n "$EXISTING_API_TAG" ] && printf 'API_TAG=%s\n' "$EXISTING_API_TAG" >> .env.tmp
+              [ -n "$EXISTING_AUTH_TAG" ] && printf 'AUTH_TAG=%s\n' "$EXISTING_AUTH_TAG" >> .env.tmp
+              printf 'FRONTEND_TAG=%s\n' "$IMAGE_TAG" >> .env.tmp
             fi
 
             mv .env.tmp .env
