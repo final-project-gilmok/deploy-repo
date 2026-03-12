@@ -124,6 +124,7 @@ jobs:
                 printf '  location ~ ^/actuator(/|$) {\n'
                 printf '    allow 127.0.0.1;\n'
                 printf '    allow 172.16.0.0/12;\n'
+                printf '    allow 158.180.78.71;\n'
                 printf '    deny all;\n'
                 printf '    proxy_pass http://gateway_backend;\n'
                 printf '  }\n'
@@ -200,8 +201,6 @@ jobs:
             mv .env.tmp .env
             chmod 600 .env
 
-            echo "📊 Monitoring skipped for deployment test."
-
             {
               printf 'services:\n'
               printf '  nginx:\n'
@@ -216,11 +215,12 @@ jobs:
               printf '      - msa-network\n\n'
 
               for COLOR in blue green; do
+                PORT=$( [ "$COLOR" = "blue" ] && echo "8081" || echo "8082" )
                 printf '  gateway-%s:\n' "$COLOR"
                 printf '    image: ghcr.io/final-project-gilmok/gateway-repo:${GATEWAY_TAG:-latest}\n'
                 printf '    container_name: gateway-%s\n' "$COLOR"
-                printf '    expose:\n'
-                printf '      - "8080"\n'
+                printf '    ports:\n'
+                printf '      - "%s:8080"\n' "$PORT"
                 printf '    environment:\n'
                 printf '      - SERVER_PORT=8080\n'
                 printf '      - SPRING_PROFILES_ACTIVE=prod\n'
@@ -239,7 +239,9 @@ jobs:
                 printf '      - "host.docker.internal:host-gateway"\n'
                 printf '    networks:\n'
                 printf '      - msa-network\n'
-                hc_cmd "http://localhost:8080/actuator/health"
+                hc_cmd_str="http://localhost:8080/actuator/health"
+                printf '    healthcheck:\n'
+                printf '      test: ["CMD-SHELL", "if command -v wget >/dev/null 2>&1; then wget -q --spider %s; elif command -v curl >/dev/null 2>&1; then curl -fsS %s >/dev/null; else exit 1; fi"]\n' "$hc_cmd_str" "$hc_cmd_str"
                 printf '      interval: 10s\n'
                 printf '      timeout: 5s\n'
                 printf '      retries: 3\n'
@@ -249,8 +251,8 @@ jobs:
               printf '  api-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/api-repo:${API_TAG:-latest}\n'
               printf '    container_name: api-server\n'
-              printf '    expose:\n'
-              printf '      - "8080"\n'
+              printf '    ports:\n'
+              printf '      - "8083:8080"\n'
               printf '    restart: always\n'
               printf '    environment:\n'
               printf '      - TZ=Asia/Seoul\n'
@@ -267,7 +269,8 @@ jobs:
               printf '      - SPRING_AI_GOOGLE_GENAI_PROJECT_ID=${GEMINI_PROJECT_ID}\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
-              hc_cmd "http://localhost:8080/actuator/health"
+              printf '    healthcheck:\n'
+              printf '      test: ["CMD-SHELL", "if command -v wget >/dev/null 2>&1; then wget -q --spider http://localhost:8080/actuator/health; elif command -v curl >/dev/null 2>&1; then curl -fsS http://localhost:8080/actuator/health >/dev/null; else exit 1; fi"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
@@ -276,8 +279,8 @@ jobs:
               printf '  auth-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}\n'
               printf '    container_name: auth-server\n'
-              printf '    expose:\n'
-              printf '      - "9000"\n'
+              printf '    ports:\n'
+              printf '      - "9000:9000"\n'
               printf '    restart: always\n'
               printf '    environment:\n'
               printf '      - TZ=Asia/Seoul\n'
@@ -292,7 +295,8 @@ jobs:
               printf '      - APP_JWT_SECRET=${JWT_SECRET}\n'
               printf '    networks:\n'
               printf '      - msa-network\n'
-              hc_cmd "http://localhost:9000/actuator/health"
+              printf '    healthcheck:\n'
+              printf '      test: ["CMD-SHELL", "if command -v wget >/dev/null 2>&1; then wget -q --spider http://localhost:9000/actuator/health; elif command -v curl >/dev/null 2>&1; then curl -fsS http://localhost:9000/actuator/health >/dev/null; else exit 1; fi"]\n'
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'

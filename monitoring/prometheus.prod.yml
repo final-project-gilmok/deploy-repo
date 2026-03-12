@@ -6,19 +6,20 @@ scrape_configs:
     static_configs:
       - targets: ['prometheus:9090']
 
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['node-exporter:9100']
-
-  - job_name: 'cadvisor'
-    static_configs:
-      # [수정] 운영 환경에서는 컨테이너 이름으로 통신
-      - targets: ['cadvisor:8080']
-
-  # [중요] 스프링 부트 앱 모니터링 (운영용)
   - job_name: 'spring-actuator'
     metrics_path: '/actuator/prometheus'
     scrape_interval: 15s
     static_configs:
-      # [수정] 컨테이너 이름 직접 명시 (Blue/Green 모두 포함)
-      - targets: ['gateway-blue:8080', 'gateway-green:8080', 'api-server:8080', 'auth-server:9000']
+      - targets: [ '146.56.104.192:8081' ]  # gateway-blue (포트 매핑 필요)
+        labels:
+          service: 'gateway-blue'
+      - targets: [ '146.56.104.192:8082' ]  # gateway-green
+        labels:
+          service: 'gateway-green'
+      - targets: [ '146.56.104.192:8083' ]  # api-server
+        labels:
+          service: 'api-server'
+      - targets: [ '146.56.104.192:9000' ]  # auth-server
+        labels:
+          service: 'auth-server'
+
