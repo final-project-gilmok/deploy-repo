@@ -274,7 +274,7 @@ jobs:
               printf '      interval: 30s\n'
               printf '      timeout: 10s\n'
               printf '      retries: 3\n'
-              printf '      start_period: 90s\n\n'
+              printf '      start_period: 360s\n\n'
 
               printf '  auth-server:\n'
               printf '    image: ghcr.io/final-project-gilmok/auth-repo:${AUTH_TAG:-latest}\n'
