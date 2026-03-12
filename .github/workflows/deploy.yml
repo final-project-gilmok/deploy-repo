@@ -178,7 +178,6 @@ jobs:
               EXISTING_FRONTEND_TAG=$(grep "^FRONTEND_TAG=" .env | cut -d= -f2- || true)
             fi
 
-            umask 077
             printf '%s\n' "FRONTEND_URL=$FRONTEND_URL" > .env.tmp
             printf '%s\n' "DB_URL=$DB_URL" >> .env.tmp
             printf '%s\n' "DB_USERNAME=$DB_USERNAME" >> .env.tmp
