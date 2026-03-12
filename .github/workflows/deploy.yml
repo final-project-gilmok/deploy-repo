@@ -362,7 +362,7 @@ jobs:
                   cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
                   exit 1
                 fi
-                sudo docker exec nginx nginx -s reload
+                sudo docker restart nginx
               else
                 if ! start_and_verify_nginx; then
                   cp ./nginx/conf.d/default.conf.bak ./nginx/conf.d/default.conf
