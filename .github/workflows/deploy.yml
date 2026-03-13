@@ -125,15 +125,14 @@ jobs:
                 printf '    proxy_set_header X-Real-IP $remote_addr;\n'
                 printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
                 printf '  }\n\n'
-
-                for path in admin users auth events queue reservations; do
-                  printf '  location ~ ^/%s(/|$) {\n' "$path"
-                  printf '    proxy_pass http://gateway_backend;\n'
-                  printf '    proxy_set_header Host $host;\n'
-                  printf '    proxy_set_header X-Real-IP $remote_addr;\n'
-                  printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
-                  printf '  }\n\n'
-                done
+            
+                printf '  location ~ ^/api/(admin|users|auth|events|queue|reservations)(/|$) {\n'
+                printf '    rewrite ^/api/(.*)$ /$1 break;\n'
+                printf '    proxy_pass http://gateway_backend;\n'
+                printf '    proxy_set_header Host $host;\n'
+                printf '    proxy_set_header X-Real-IP $remote_addr;\n'
+                printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+                printf '  }\n\n'
 
                 printf '  location ~ ^/actuator(/|$) {\n'
                 printf '    allow 127.0.0.1;\n'
