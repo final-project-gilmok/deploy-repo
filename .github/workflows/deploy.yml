@@ -188,7 +188,10 @@ jobs:
               EXISTING_FRONTEND_TAG=$(grep "^FRONTEND_TAG=" .env 2>/dev/null | tail -1 | cut -d= -f2- || echo "")
             fi
 
-            printf 'FRONTEND_URL=%s\n' "$FRONTEND_URL" > .env.tmp || { echo "❌ .env.tmp 생성 실패, pwd=$(pwd)"; exit 1; }
+            rm -f .env.tmp
+            ( umask 077 && touch .env.tmp ) || { echo "❌ .env.tmp 생성 실패, pwd=$(pwd)"; exit 1; }
+            
+            printf 'FRONTEND_URL=%s\n' "$FRONTEND_URL" >> .env.tmp
             printf 'DB_URL=%s\n' "$DB_URL" >> .env.tmp
             printf 'DB_USERNAME=%s\n' "$DB_USERNAME" >> .env.tmp
             printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD" >> .env.tmp
@@ -220,6 +223,7 @@ jobs:
             fi
 
             mv .env.tmp .env
+            # 600 권한은 이미 umask 077로 생성될 때 보장되나 명시적 확인 위해 (필요시 제거 가능)
             chmod 600 .env
 
             {
