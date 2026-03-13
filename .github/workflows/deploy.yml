@@ -137,8 +137,8 @@ jobs:
                 printf '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
                 printf '  }\n\n'
             
-                printf '  location ~ ^/(api/)?(admin|users|auth|events|queue|reservations)(/|$) {\n'
-                printf '    rewrite ^/(api/)?(.*)$ /$2 break;\n'
+                printf '  location ~ ^/api/(admin|users|auth|events|queue|reservations)(/|$) {\n'
+                printf '    rewrite ^/api/(.*)$ /$1 break;\n'
                 printf '    proxy_pass http://gateway_backend;\n'
                 printf '    proxy_set_header Host $host;\n'
                 printf '    proxy_set_header X-Real-IP $remote_addr;\n'
