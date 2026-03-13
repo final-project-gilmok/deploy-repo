@@ -171,13 +171,13 @@ jobs:
             EXISTING_AUTH_TAG=""
             EXISTING_FRONTEND_TAG=""
             if [ -f .env ]; then
-              EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env | tail -1 | cut -d= -f2- || true)
-              EXISTING_API_TAG=$(grep "^API_TAG=" .env | tail -1 | cut -d= -f2- || true)
-              EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env | tail -1 | cut -d= -f2- || true)
-              EXISTING_FRONTEND_TAG=$(grep "^FRONTEND_TAG=" .env | tail -1 | cut -d= -f2- || true)
+              EXISTING_GATEWAY_TAG=$(grep "^GATEWAY_TAG=" .env 2>/dev/null | tail -1 | cut -d= -f2- || echo "")
+              EXISTING_API_TAG=$(grep "^API_TAG=" .env 2>/dev/null | tail -1 | cut -d= -f2- || echo "")
+              EXISTING_AUTH_TAG=$(grep "^AUTH_TAG=" .env 2>/dev/null | tail -1 | cut -d= -f2- || echo "")
+              EXISTING_FRONTEND_TAG=$(grep "^FRONTEND_TAG=" .env 2>/dev/null | tail -1 | cut -d= -f2- || echo "")
             fi
 
-            printf 'FRONTEND_URL=%s\n' "$FRONTEND_URL" > .env.tmp
+            printf 'FRONTEND_URL=%s\n' "$FRONTEND_URL" > .env.tmp || { echo "❌ .env.tmp 생성 실패, pwd=$(pwd)"; exit 1; }
             printf 'DB_URL=%s\n' "$DB_URL" >> .env.tmp
             printf 'DB_USERNAME=%s\n' "$DB_USERNAME" >> .env.tmp
             printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD" >> .env.tmp
