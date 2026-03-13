@@ -7,9 +7,6 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    concurrency:
-      group: msa-deployment
-      cancel-in-progress: false
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -37,6 +34,17 @@ jobs:
           script: |
             set -euo pipefail
             trap 'echo "❌ 실패한 줄: $LINENO, 명령어: $BASH_COMMAND"' ERR
+
+            LOCK_FILE=/var/tmp/msa_deploy.lock
+            
+            # flock을 이용하여 이 스크립트 블록 전체를 순차적으로 실행 (최대 10분 대기)
+            exec 200>|"$LOCK_FILE"
+            echo "⏳ 락(Lock) 획득 대기 중..."
+            if ! flock -w 600 200; then
+              echo "❌ Error: 다른 배포 작업이 너무 오래 걸려 락 획득에 실패했습니다."
+              exit 1
+            fi
+            echo "🔒 락 획득 완료! 배포를 시작합니다."
 
             echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
